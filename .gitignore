@@ -1,0 +1,28 @@
+# Virtual environment
+hawki_env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment variables
+.env
+
+# Model weights (large binary files)
+models/*.pt
+models/*.pth
+models/*.safetensors
+
+# Database
+*.db
+*.sqlite
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
