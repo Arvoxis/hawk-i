@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hawk-I — Software Developer Guide</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Epilogue:wght@300;400;500;600&family=Fira+Code:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f7f6f2;
+    --surface: #ffffff;
+    --surface2: #f0ede6;
+    --border: #e2ddd5;
+    --border2: #ccc7bc;
+    --ink: #1a1814;
+    --ink2: #3d3a34;
+    --ink3: #8a8479;
+    --accent: #2563eb;
+    --accent-dim: rgba(37,99,235,0.08);
+    --accent-border: rgba(37,99,235,0.25);
+    --green: #16a34a;
+    --green-dim: rgba(22,163,74,0.08);
+    --green-border: rgba(22,163,74,0.25);
+    --orange: #ea580c;
+    --orange-dim: rgba(234,88,12,0.08);
+    --orange-border: rgba(234,88,12,0.25);
+    --purple: #7c3aed;
+    --purple-dim: rgba(124,58,237,0.08);
+    --purple-border: rgba(124,58,237,0.25);
+    --red: #dc2626;
+    --gold: #b45309;
+    --gold-dim: rgba(180,83,9,0.08);
+    --gold-border: rgba(180,83,9,0.25);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink2);
+    font-family: 'Epilogue', sans-serif;
+    font-size: 14px;
+    line-height: 1.75;
+  }
+
+  .page {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 56px 36px;
+  }
+
+  /* TOP BAR */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 24px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 48px;
+  }
+  .topbar-left {
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    color: var(--ink3);
+    letter-spacing: 1px;
+  }
+  .topbar-title {
+    font-family: 'Fraunces', serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .topbar-badge {
+    font-family: 'Fira Code', monospace;
+    font-size: 10px;
+    background: var(--accent);
+    color: white;
+    padding: 4px 10px;
+    letter-spacing: 1px;
+  }
+
+  /* HERO */
+  .hero { margin-bottom: 56px; }
+  .hero-label {
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-size: 52px;
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1.05;
+    letter-spacing: -1px;
+    margin-bottom: 16px;
+  }
+  h1 em { font-style: italic; color: var(--accent); }
+  .hero-desc {
+    font-size: 15px;
+    color: var(--ink2);
+    font-weight: 300;
+    max-width: 680px;
+    line-height: 1.8;
+  }
+
+  /* TOC */
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 24px 28px;
+    margin-bottom: 56px;
+  }
+  .toc-title {
+    font-family: 'Fira Code', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--ink3);
+    margin-bottom: 16px;
+  }
+  .toc-list { list-style: none; }
+  .toc-list li {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 13px;
+  }
+  .toc-list li:last-child { border-bottom: none; }
+  .toc-num {
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    width: 24px;
+    flex-shrink: 0;
+  }
+  .toc-name { color: var(--ink); font-weight: 500; }
+  .toc-sub { color: var(--ink3); font-size: 12px; margin-left: auto; }
+
+  /* SECTIONS */
+  .sec { margin-bottom: 56px; }
+  .sec-header {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 24px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border2);
+  }
+  .sec-num {
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-border);
+    padding: 3px 10px;
+    flex-shrink: 0;
+  }
+  h2 {
+    font-family: 'Fraunces', serif;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.5px;
+  }
+
+  h3 {
+    font-family: 'Fraunces', serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 10px;
+    margin-top: 24px;
+  }
+  h4 {
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--ink3);
+    margin-bottom: 8px;
+    margin-top: 16px;
+  }
+
+  p { color: var(--ink2); font-weight: 300; margin-bottom: 12px; line-height: 1.8; }
+  strong { font-weight: 600; color: var(--ink); }
+  code {
+    font-family: 'Fira Code', monospace;
+    font-size: 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    color: var(--orange);
+  }
+
+  /* CARDS */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 20px 24px;
+    margin-bottom: 14px;
+  }
+  .card-blue { border-left: 3px solid var(--accent); }
+  .card-green { border-left: 3px solid var(--green); }
+  .card-orange { border-left: 3px solid var(--orange); }
+  .card-purple { border-left: 3px solid var(--purple); }
+  .card-gold { border-left: 3px solid var(--gold); }
+  .card-red { border-left: 3px solid var(--red); }
+
+  /* CODE BLOCKS */
+  .codeblock {
+    background: #1a1814;
+    border: 1px solid #2e2b26;
+    padding: 20px 22px;
+    font-family: 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.9;
+    overflow-x: auto;
+    margin: 14px 0;
+    color: #c4b99a;
+  }
+  .cc { color: #4a4540; }
+  .ck { color: #e8914a; }
+  .cs { color: #7ec8a0; }
+  .cf { color: #7aadda; }
+  .cv { color: #c4a0e8; }
+  .cn { color: #e8c87a; }
+
+  /* CALLOUT */
+  .callout {
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-border);
+    border-left: 4px solid var(--accent);
+    padding: 16px 20px;
+    margin: 16px 0;
+  }
+  .callout-label {
+    font-family: 'Fira Code', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .callout p { color: var(--ink2); margin: 0; font-size: 13px; }
+
+  .callout-green {
+    background: var(--green-dim);
+    border-color: var(--green-border);
+    border-left-color: var(--green);
+  }
+  .callout-green .callout-label { color: var(--green); }
+
+  .callout-orange {
+    background: var(--orange-dim);
+    border-color: var(--orange-border);
+    border-left-color: var(--orange);
+  }
+  .callout-orange .callout-label { color: var(--orange); }
+
+  .callout-purple {
+    background: var(--purple-dim);
+    border-color: var(--purple-border);
+    border-left-color: var(--purple);
+  }
+  .callout-purple .callout-label { color: var(--purple); }
+
+  /* GRIDS */
+  .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+
+  /* STEP FLOW */
+  .flow-step {
+    display: grid;
+    grid-template-columns: 36px 2px 1fr;
+    gap: 0 16px;
+    margin-bottom: 0;
+  }
+  .flow-num {
+    width: 36px; height: 36px;
+    background: var(--accent);
+    color: white;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Fira Code', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  .flow-num.gn { background: var(--green); }
+  .flow-num.on { background: var(--orange); }
+  .flow-num.pn { background: var(--purple); }
+  .flow-num.gdn { background: var(--gold); }
+  .flow-line {
+    width: 2px;
+    background: var(--border2);
+    margin: 0 auto;
+    min-height: 20px;
+    height: 100%;
+  }
+  .flow-body { padding-bottom: 28px; padding-top: 6px; }
+  .flow-title {
+    font-family: 'Epilogue', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 6px;
+  }
+  .flow-detail { font-size: 13px; color: var(--ink2); font-weight: 300; line-height: 1.75; }
+  .flow-tags { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+
+  /* TAGS */
+  .tag {
+    font-family: 'Fira Code', monospace;
+    font-size: 10px;
+    padding: 2px 8px;
+    border: 1px solid var(--border2);
+    color: var(--ink3);
+  }
+  .tb { border-color: var(--accent-border); color: var(--accent); background: var(--accent-dim); }
+  .tg { border-color: var(--green-border); color: var(--green); background: var(--green-dim); }
+  .to { border-color: var(--orange-border); color: var(--orange); background: var(--orange-dim); }
+  .tp { border-color: var(--purple-border); color: var(--purple); background: var(--purple-dim); }
+  .tgd { border-color: var(--gold-border); color: var(--gold); background: var(--gold-dim); }
+
+  /* BUILD CHECKLIST */
+  .check-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .check-item:last-child { border-bottom: none; }
+  .check-box {
+    width: 18px; height: 18px;
+    border: 1.5px solid var(--border2);
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .check-text { color: var(--ink2); font-weight: 300; line-height: 1.5; }
+  .check-text strong { color: var(--ink); font-weight: 600; }
+  .check-priority {
+    font-family: 'Fira Code', monospace;
+    font-size: 9px;
+    padding: 2px 6px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .p-crit { background: #fef2f2; border: 1px solid #fecaca; color: var(--red); }
+  .p-high { background: var(--orange-dim); border: 1px solid var(--orange-border); color: var(--orange); }
+  .p-med { background: var(--gold-dim); border: 1px solid var(--gold-border); color: var(--gold); }
+
+  /* FILE TREE */
+  .filetree {
+    background: #1a1814;
+    border: 1px solid #2e2b26;
+    padding: 20px 22px;
+    font-family: 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 2;
+    color: #c4b99a;
+  }
+  .ft-dir { color: #7aadda; }
+  .ft-file { color: #c4b99a; }
+  .ft-comment { color: #4a4540; }
+
+  /* DIVIDER */
+  hr { border: none; border-top: 1px solid var(--border); margin: 48px 0; }
+
+  /* INLINE ARCH */
+  .arch-inline {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 20px;
+    margin: 16px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .arch-box {
+    border: 1px solid var(--border2);
+    padding: 8px 14px;
+    font-family: 'Fira Code', monospace;
+    font-size: 10px;
+    text-align: center;
+    line-height: 1.5;
+    color: var(--ink3);
+  }
+  .ab { border-color: var(--accent-border); color: var(--accent); background: var(--accent-dim); }
+  .ag { border-color: var(--green-border); color: var(--green); background: var(--green-dim); }
+  .ao { border-color: var(--orange-border); color: var(--orange); background: var(--orange-dim); }
+  .ap { border-color: var(--purple-border); color: var(--purple); background: var(--purple-dim); }
+  .arr { color: var(--ink3); font-size: 14px; }
+
+  /* FOOTER */
+  .footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 2px solid var(--ink);
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Fira Code', monospace;
+    font-size: 10px;
+    color: var(--ink3);
+    letter-spacing: 1px;
+  }
+
+  @media (max-width: 680px) {
+    h1 { font-size: 36px; }
+    .g2, .g3 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="topbar-left">hawk-i · software engineer guide · v1.0</div>
+    <div class="topbar-title">For the SW team</div>
+    <div class="topbar-badge">INTERNAL DEV DOC</div>
+  </div>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-label">Hawk-I · Software Architecture</div>
+    <h1>Your complete<br><em>software guide</em></h1>
+    <p class="hero-desc">
+      Everything you need to understand, build, and run the software side of Hawk-I — from how each model works in plain English, to the exact code flow, project structure, and a day-by-day build plan for the hackathon.
+    </p>
+  </div>
+
+  <!-- TOC -->
+  <div class="toc">
+    <div class="toc-title">What's in this guide</div>
+    <ul class="toc-list">
+      <li><span class="toc-num">01</span><span class="toc-name">The big picture — how all the software fits together</span><span class="toc-sub">Mental model first</span></li>
+      <li><span class="toc-num">02</span><span class="toc-name">How each AI model actually works</span><span class="toc-sub">Plain English explanations</span></li>
+      <li><span class="toc-num">03</span><span class="toc-name">The data flow — what happens to each frame</span><span class="toc-sub">Step by step</span></li>
+      <li><span class="toc-num">04</span><span class="toc-name">Backend — FastAPI + WebSocket + PostGIS</span><span class="toc-sub">Server side</span></li>
+      <li><span class="toc-num">05</span><span class="toc-name">Dashboard — Streamlit + Folium + live video</span><span class="toc-sub">Frontend side</span></li>
+      <li><span class="toc-num">06</span><span class="toc-name">LLM pipeline — Gemma-3 + LangChain</span><span class="toc-sub">The report brain</span></li>
+      <li><span class="toc-num">07</span><span class="toc-name">Project folder structure</span><span class="toc-sub">Where everything lives</span></li>
+      <li><span class="toc-num">08</span><span class="toc-name">Your build order — what to do first</span><span class="toc-sub">Day by day plan</span></li>
+      <li><span class="toc-num">09</span><span class="toc-name">Environment setup — installs and config</span><span class="toc-sub">Getting started</span></li>
+    </ul>
+  </div>
+
+  <!-- SECTION 1: BIG PICTURE -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">01</span>
+      <h2>The Big Picture</h2>
+    </div>
+
+    <p>Before writing a single line of code, you need a clear mental model of what the software is actually doing. Think of Hawk-I's software as <strong>three separate systems talking to each other</strong>:</p>
+
+    <div class="g3" style="margin-top: 16px;">
+      <div class="card card-blue">
+        <h4>System A — On the Drone</h4>
+        <strong style="font-size: 14px;">Edge Inference</strong>
+        <p style="font-size: 13px; margin-top: 8px;">This runs on the Jetson (the small computer attached to the drone). It captures the camera feed, runs the AI models, and sends results over WiFi to your laptop. <em>You don't write this code — the HW team does.</em> But you need to understand what it sends you.</p>
+      </div>
+      <div class="card card-orange">
+        <h4>System B — Your Laptop</h4>
+        <strong style="font-size: 14px;">Backend Server</strong>
+        <p style="font-size: 13px; margin-top: 8px;">This is a Python FastAPI server running on your laptop. It receives data from the drone, runs the heavier AI models (SAM 3, DINOv2, LLM), stores everything in a database, and serves the dashboard. <em>This is your main job.</em></p>
+      </div>
+      <div class="card card-green">
+        <h4>System C — Browser</h4>
+        <strong style="font-size: 14px;">Dashboard</strong>
+        <p style="font-size: 13px; margin-top: 8px;">A Streamlit web app that opens in your browser. It shows the live drone feed with AI boxes drawn on it, a GPS map with defect pins, a live report panel, and a text box where the engineer types what to search for. <em>This is your second job.</em></p>
+      </div>
+    </div>
+
+    <div class="arch-inline" style="margin-top: 20px;">
+      <div class="arch-box ab">DRONE<br>(Jetson)<br>AI inference</div>
+      <div class="arr">──WiFi──→</div>
+      <div class="arch-box ao">FASTAPI<br>BACKEND<br>your laptop</div>
+      <div class="arr">──→</div>
+      <div class="arch-box">SAM 3<br>DINOv2<br>LLM</div>
+      <div class="arr">──→</div>
+      <div class="arch-box">PostGIS<br>Database</div>
+      <div class="arr">──WebSocket──→</div>
+      <div class="arch-box ag">STREAMLIT<br>DASHBOARD<br>browser</div>
+    </div>
+
+    <div class="callout" style="margin-top: 16px;">
+      <div class="callout-label">What the drone sends you</div>
+      <p>The Jetson sends you a JSON message over WebSocket for every detection it finds. Each message contains: the defect class name (e.g. "cracked concrete"), confidence score (0 to 1), the bounding box coordinates (x1, y1, x2, y2 in pixels), the GPS location (latitude, longitude, altitude), and a JPEG-compressed image of the frame. <strong>Your backend receives this and does everything else.</strong></p>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 2: HOW EACH MODEL WORKS -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">02</span>
+      <h2>How Each AI Model Works</h2>
+    </div>
+
+    <p>There are 4 AI models involved in Hawk-I. Two run on the drone (HW team's responsibility), two run on your laptop (your responsibility). Here's what each one does in plain English.</p>
+
+    <h3>Model 1 — YOLO11n (runs on drone, not your job but good to know)</h3>
+    <div class="card card-blue">
+      <p style="font-size: 13px;"><strong>What it is:</strong> YOLO stands for "You Only Look Once." It's a very fast object detection model that looks at a camera frame and draws boxes around things it recognises. The "11n" means it's the 11th version, "nano" size — the smallest and fastest variant.</p>
+      <p style="font-size: 13px;"><strong>How it works:</strong> It divides the image into a grid. For each grid cell, it asks "is there an object here, what class is it, and where exactly is its bounding box?" It does this for the whole image in one single pass — that's why it's fast enough to run at 60 frames per second.</p>
+      <p style="font-size: 13px;"><strong>Its limitation:</strong> It can only detect things it was trained on. If you trained it on "crack" and "rust," it cannot detect "missing bolt" unless you retrain it. This is why we add Grounding DINO on top.</p>
+      <div class="flow-tags"><span class="tag tb">runs on Jetson</span><span class="tag tb">60+ FPS</span><span class="tag tb">fixed classes only</span></div>
+    </div>
+
+    <h3>Model 2 — Grounding DINO (runs on drone, not your job but very important)</h3>
+    <div class="card card-orange">
+      <p style="font-size: 13px;"><strong>What it is:</strong> Grounding DINO is a "foundation model" — trained on hundreds of millions of image-text pairs from the internet. It understands both images and language simultaneously. DINO stands for "Detection In an Open-world" — it can detect anything you describe in text.</p>
+      <p style="font-size: 13px;"><strong>How it works:</strong> You give it two inputs — an image AND a text description. Inside the model, a vision encoder (like a very smart image reader) and a language encoder (like BERT, which understands sentences) both process their inputs and then cross-reference each other. The model asks "where in this image does the text description best match?" and draws a bounding box there.</p>
+      <p style="font-size: 13px;"><strong>Why it's the magic:</strong> The engineer types <strong>"spalling . exposed rebar . rust stain"</strong> (using a dot to separate multiple queries) into your dashboard. Your backend sends this text string to the drone via WebSocket. The Jetson feeds it into Grounding DINO. The model finds every matching instance — without ever being trained on those specific words. That's the zero-shot part.</p>
+      <p style="font-size: 13px;"><strong>What you receive from it:</strong> A list of bounding boxes, each with a matched phrase and a confidence score. E.g. <code>{"phrase": "rust stain", "box": [120, 340, 280, 490], "confidence": 0.71}</code></p>
+      <div class="flow-tags"><span class="tag to">runs on Jetson</span><span class="tag to">text-prompted</span><span class="tag to">zero-shot</span><span class="tag to">8–12 FPS</span></div>
+    </div>
+
+    <h3>Model 3 — SAM 3 (runs on YOUR laptop — your responsibility)</h3>
+    <div class="card card-purple">
+      <p style="font-size: 13px;"><strong>What it is:</strong> SAM stands for "Segment Anything Model," made by Meta. Version 3 is the latest. Where YOLO and Grounding DINO draw rectangular bounding boxes, SAM draws pixel-perfect outlines around the exact shape of the object. This is called segmentation.</p>
+      <p style="font-size: 13px;"><strong>How it works:</strong> You give SAM two things — the original image and a "prompt." The prompt can be a bounding box (which is what we use — the box that Grounding DINO already found). SAM then asks "within and around this box, what are the exact pixels that belong to this object?" and returns a binary mask — a black and white image where white pixels = the defect.</p>
+      <p style="font-size: 13px;"><strong>Why we need it:</strong> The bounding box from Grounding DINO just gives you a rectangle. But to measure the actual crack length or the area of water damage, you need the precise shape. SAM gives you that. Once you have the mask, you count the white pixels, and using the drone's altitude and camera focal length, you convert that pixel count to real-world centimetres squared.</p>
+      <p style="font-size: 13px;"><strong>The maths for pixel → cm conversion:</strong> <code>real_width_cm = (pixel_width / image_width_px) × (altitude_m × sensor_width_mm / focal_length_mm) × 100</code>. The HW team gives you altitude and focal length — you just plug them in.</p>
+      <div class="flow-tags"><span class="tag tp">YOUR JOB</span><span class="tag tp">runs on your GPU</span><span class="tag tp">needs bounding box as prompt</span><span class="tag tp">outputs pixel mask</span></div>
+    </div>
+
+    <h3>Model 4 — DINOv2 (runs on YOUR laptop — your responsibility)</h3>
+    <div class="card card-green">
+      <p style="font-size: 13px;"><strong>What it is:</strong> DINOv2 is a visual feature extractor made by Meta. It doesn't detect objects or draw boxes. Instead, it reads an image and produces a 768-number summary of everything it sees — called an "embedding." Think of it as a fingerprint of the image's visual content.</p>
+      <p style="font-size: 13px;"><strong>How we use it:</strong> During the first inspection of a structure, we store the DINOv2 embeddings of all frames — this is the "healthy baseline." On subsequent inspections, we compute new embeddings and compare them to the baseline using cosine similarity (a mathematical measure of how similar two vectors are, from 0 to 1). If the similarity drops below 0.82, it means the structure looks significantly different from before — even if no specific defect was typed in. This is how we catch "unknown unknowns."</p>
+      <p style="font-size: 13px;"><strong>For the hackathon:</strong> This is a nice-to-have feature, not critical path. Build it after everything else works. It only needs to run on every 10th frame to save compute.</p>
+      <div class="flow-tags"><span class="tag tg">YOUR JOB</span><span class="tag tg">anomaly detection</span><span class="tag tg">768-dim vectors</span><span class="tag tg">cosine similarity</span><span class="tag tg">build last</span></div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 3: DATA FLOW -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">03</span>
+      <h2>The Data Flow — What Happens to Each Frame</h2>
+    </div>
+
+    <p>This is the most important thing to understand. Here is exactly what happens from the moment the drone camera captures a frame to the moment a pin appears on your dashboard map.</p>
+
+    <div class="flow-step">
+      <div class="flow-num">1</div>
+      <div class="flow-line"></div>
+      <div class="flow-body">
+        <div class="flow-title">Camera captures a frame on the drone</div>
+        <div class="flow-detail">The IMX477 camera is connected to the Jetson via a MIPI CSI-2 cable. GStreamer (a video pipeline tool) reads frames from the camera at 1080p/60fps. OpenCV then receives those frames as NumPy arrays — basically a 1080×1920×3 grid of numbers representing pixel colours. The HW team sets this up.</div>
+        <div class="flow-tags"><span class="tag">HW team</span><span class="tag">GStreamer</span><span class="tag">OpenCV</span></div>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-num">2</div>
+      <div class="flow-line"></div>
+      <div class="flow-body">
+        <div class="flow-title">Two AI models run on the frame simultaneously</div>
+        <div class="flow-detail">YOLO11n runs on every frame at 60 FPS using TensorRT (NVIDIA's optimised inference engine). Grounding DINO runs every 5th frame at ~8 FPS with the current text query. Both run in separate Python threads simultaneously. The HW team handles this, but <strong>you need to know the output format</strong> because your backend receives it.</div>
+        <div class="flow-tags"><span class="tag">HW team</span><span class="tag">two threads</span><span class="tag">TensorRT INT8</span></div>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-num">3</div>
+      <div class="flow-line"></div>
+      <div class="flow-body">
+        <div class="flow-title">Detection results are packaged into a JSON payload</div>
+        <div class="flow-detail">The Jetson creates a JSON object containing all detections from both models, the GPS coordinates from MAVLink, and a JPEG-compressed image of the annotated frame. This JSON is the exact thing your WebSocket server will receive. Here is the exact structure you need to expect and parse:</div>
+        <div class="flow-tags"><span class="tag">HW team sends this</span><span class="tag">YOUR server receives this</span></div>
+        <div class="codeblock">
+<span class="cc"># This is what arrives at your FastAPI WebSocket endpoint</span>
+{
+  <span class="cs">"timestamp"</span>: <span class="cn">1712345678.432</span>,
+  <span class="cs">"gps"</span>: {
+    <span class="cs">"lat"</span>: <span class="cn">12.9716</span>, <span class="cs">"lon"</span>: <span class="cn">77.5946</span>, <span class="cs">"alt_m"</span>: <span class="cn">12.4</span>
+  },
+  <span class="cs">"yolo_detections"</span>: [
+    {<span class="cs">"class"</span>: <span class="cs">"crack"</span>, <span class="cs">"conf"</span>: <span class="cn">0.87</span>, <span class="cs">"box"</span>: [<span class="cn">120</span>, <span class="cn">340</span>, <span class="cn">280</span>, <span class="cn">490</span>]}
+  ],
+  <span class="cs">"gdino_detections"</span>: [
+    {<span class="cs">"phrase"</span>: <span class="cs">"cracked concrete"</span>, <span class="cs">"conf"</span>: <span class="cn">0.71</span>, <span class="cs">"box"</span>: [<span class="cn">118</span>, <span class="cn">338</span>, <span class="cn">285</span>, <span class="cn">495</span>]}
+  ],
+  <span class="cs">"frame_jpeg"</span>: <span class="cs">"&lt;base64-encoded JPEG string&gt;"</span>
+}
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-num gn">4</div>
+      <div class="flow-line"></div>
+      <div class="flow-body">
+        <div class="flow-title">YOUR backend receives it and runs SAM 3</div>
+        <div class="flow-detail">Your FastAPI WebSocket endpoint receives the JSON above. You decode the JPEG image, take each bounding box, and pass it to SAM 3. SAM 3 returns a binary mask. You count the white pixels in the mask and run the pixel→cm² conversion formula. Now you have: class name, confidence, GPS coords, and the real-world defect size in cm².</div>
+        <div class="flow-tags"><span class="tag tp">YOUR JOB</span><span class="tag tp">FastAPI</span><span class="tag tp">SAM 3</span><span class="tag tp">pixel→cm math</span></div>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-num gn">5</div>
+      <div class="flow-line"></div>
+      <div class="flow-body">
+        <div class="flow-title">Save to database and push to dashboard</div>
+        <div class="flow-detail">You save the detection (class, confidence, GPS, area_cm2, image path, timestamp) into your PostGIS database. Simultaneously, you push a simplified version of the detection to the Streamlit dashboard via a separate WebSocket connection. The dashboard receives it and immediately drops a colour-coded pin on the Folium map.</div>
+        <div class="flow-tags"><span class="tag tg">YOUR JOB</span><span class="tag tg">PostGIS INSERT</span><span class="tag tg">WebSocket push</span></div>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-num gdn">6</div>
+      <div class="flow-line"></div>
+      <div class="flow-body">
+        <div class="flow-title">Every 30 seconds — batch to LLM for report entry</div>
+        <div class="flow-detail">A background task in FastAPI collects all high-confidence detections from the last 30 seconds. It sends the annotated image + detection metadata to Gemma-3 (running locally via Ollama). The LLM returns a structured JSON with severity level, recommended action, urgency days, and a plain-language description. This gets added to the report panel on the dashboard.</div>
+        <div class="flow-tags"><span class="tag tgd">YOUR JOB</span><span class="tag tgd">Gemma-3 via Ollama</span><span class="tag tgd">LangChain</span><span class="tag tgd">BackgroundTasks</span></div>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-num gn">7</div>
+      <div class="flow-line"></div>
+      <div class="flow-body" style="padding-bottom: 0;">
+        <div class="flow-title">On mission end — generate PDF report</div>
+        <div class="flow-detail">When the drone lands and the engineer clicks "Generate Report," your FastAPI endpoint queries all detections from PostGIS, sorts them by severity, takes the annotated images, generates a Folium map screenshot, and passes everything to a WeasyPrint HTML template. WeasyPrint converts the HTML to a PDF. The dashboard triggers a file download. Done.</div>
+        <div class="flow-tags"><span class="tag tg">YOUR JOB</span><span class="tag tg">WeasyPrint</span><span class="tag tg">PostGIS query</span><span class="tag tg">Folium screenshot</span></div>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 4: BACKEND -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">04</span>
+      <h2>Backend — FastAPI + WebSocket + PostGIS</h2>
+    </div>
+
+    <p>FastAPI is your central nervous system. Everything flows through it. Here's what it needs to do and how to structure it.</p>
+
+    <h3>What FastAPI needs to handle</h3>
+    <div class="g2">
+      <div class="card card-blue">
+        <h4>WebSocket endpoints</h4>
+        <p style="font-size: 13px;"><strong>/ws/drone</strong> — receives data FROM the Jetson (detections + frames). This is where all the AI inference results arrive.<br><br>
+        <strong>/ws/dashboard</strong> — sends data TO the Streamlit dashboard. When a new detection is processed, push a summary here so the map pin appears instantly.</p>
+      </div>
+      <div class="card card-orange">
+        <h4>REST endpoints</h4>
+        <p style="font-size: 13px;"><strong>POST /query</strong> — receives the text query from the dashboard and forwards it to the drone via the drone WebSocket.<br><br>
+        <strong>GET /detections</strong> — returns all stored detections from PostGIS as GeoJSON for the map.<br><br>
+        <strong>GET /report/pdf</strong> — triggers PDF generation and returns the file.</p>
+      </div>
+    </div>
+
+    <h3>The WebSocket receiver — the most important function you'll write</h3>
+    <div class="codeblock">
+<span class="cc"># backend/main.py</span>
+<span class="ck">from</span> fastapi <span class="ck">import</span> FastAPI, WebSocket
+<span class="ck">from</span> fastapi.background <span class="ck">import</span> BackgroundTasks
+<span class="ck">import</span> json, base64, numpy <span class="ck">as</span> np, cv2
+<span class="ck">from</span> sam3_worker <span class="ck">import</span> <span class="cf">run_sam3</span>
+<span class="ck">from</span> database <span class="ck">import</span> <span class="cf">save_detection</span>
+<span class="ck">from</span> llm_worker <span class="ck">import</span> llm_queue
+
+<span class="cv">app</span> = <span class="cf">FastAPI</span>()
+<span class="cv">dashboard_clients</span> = []   <span class="cc"># list of connected dashboard WebSockets</span>
+
+<span class="ck">@app.websocket</span>(<span class="cs">"/ws/drone"</span>)
+<span class="ck">async def</span> <span class="cf">drone_receiver</span>(websocket: WebSocket):
+    <span class="ck">await</span> websocket.<span class="cf">accept</span>()
+    <span class="ck">while True</span>:
+        <span class="cv">raw</span> = <span class="ck">await</span> websocket.<span class="cf">receive_text</span>()
+        <span class="cv">data</span> = json.<span class="cf">loads</span>(raw)
+
+        <span class="cc"># Decode the JPEG frame back to a NumPy image array</span>
+        <span class="cv">jpg_bytes</span> = base64.<span class="cf">b64decode</span>(data[<span class="cs">"frame_jpeg"</span>])
+        <span class="cv">frame</span> = cv2.<span class="cf">imdecode</span>(np.<span class="cf">frombuffer</span>(jpg_bytes, np.uint8), cv2.IMREAD_COLOR)
+
+        <span class="cc"># Merge YOLO + GDINO detections</span>
+        <span class="cv">all_detections</span> = data[<span class="cs">"yolo_detections"</span>] + data[<span class="cs">"gdino_detections"</span>]
+
+        <span class="ck">for</span> det <span class="ck">in</span> all_detections:
+            <span class="ck">if</span> det[<span class="cs">"conf"</span>] < <span class="cn">0.45</span>: <span class="ck">continue</span>  <span class="cc"># skip low-confidence detections</span>
+
+            <span class="cc"># Run SAM 3 to get pixel mask and area</span>
+            <span class="cv">mask</span>, <span class="cv">area_cm2</span> = <span class="cf">run_sam3</span>(frame, det[<span class="cs">"box"</span>], data[<span class="cs">"gps"</span>][<span class="cs">"alt_m"</span>])
+
+            <span class="cc"># Severity mapping: L1=minor, L2=moderate, L3=critical</span>
+            <span class="cv">severity</span> = <span class="cs">"L3"</span> <span class="ck">if</span> area_cm2 > <span class="cn">500</span> <span class="ck">else</span> <span class="cs">"L2"</span> <span class="ck">if</span> area_cm2 > <span class="cn">100</span> <span class="ck">else</span> <span class="cs">"L1"</span>
+
+            <span class="cc"># Save to PostGIS database</span>
+            <span class="ck">await</span> <span class="cf">save_detection</span>(
+                class_name=det.get(<span class="cs">"class"</span>) <span class="ck">or</span> det.get(<span class="cs">"phrase"</span>),
+                confidence=det[<span class="cs">"conf"</span>], gps=data[<span class="cs">"gps"</span>],
+                area_cm2=area_cm2, severity=severity
+            )
+
+            <span class="cc"># Push to dashboard — this makes the pin appear on the map</span>
+            <span class="cv">pin_data</span> = {<span class="cs">"lat"</span>: data[<span class="cs">"gps"</span>][<span class="cs">"lat"</span>], <span class="cs">"lon"</span>: data[<span class="cs">"gps"</span>][<span class="cs">"lon"</span>],
+                        <span class="cs">"class"</span>: det.get(<span class="cs">"class"</span>) <span class="ck">or</span> det.get(<span class="cs">"phrase"</span>),
+                        <span class="cs">"severity"</span>: severity, <span class="cs">"area_cm2"</span>: <span class="cf">round</span>(area_cm2, <span class="cn">1</span>)}
+            <span class="ck">for</span> client <span class="ck">in</span> dashboard_clients:
+                <span class="ck">await</span> client.<span class="cf">send_json</span>(pin_data)
+
+            <span class="cc"># Add to LLM queue for report generation</span>
+            llm_queue.<span class="cf">put</span>({<span class="cs">"det"</span>: det, <span class="cs">"area"</span>: area_cm2, <span class="cs">"gps"</span>: data[<span class="cs">"gps"</span>]})
+    </div>
+
+    <h3>PostGIS database — what tables you need</h3>
+    <p>PostGIS is just PostgreSQL with geospatial superpowers. You only need one main table for the hackathon:</p>
+    <div class="codeblock">
+<span class="cc">-- Run this once to set up your database</span>
+<span class="ck">CREATE EXTENSION IF NOT EXISTS</span> postgis;
+
+<span class="ck">CREATE TABLE</span> detections (
+  id          SERIAL PRIMARY KEY,
+  class_name  TEXT NOT NULL,
+  confidence  FLOAT,
+  severity    TEXT,           <span class="cc">-- 'L1', 'L2', 'L3'</span>
+  area_cm2    FLOAT,
+  location    GEOMETRY(Point, <span class="cn">4326</span>),  <span class="cc">-- GPS point (lon, lat)</span>
+  altitude_m  FLOAT,
+  image_path  TEXT,           <span class="cc">-- saved annotated frame on disk</span>
+  llm_report  JSONB,          <span class="cc">-- LLM output stored as JSON</span>
+  detected_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+<span class="cc">-- Spatial index so GPS queries are fast</span>
+<span class="ck">CREATE INDEX</span> ON detections USING GIST(location);
+    </div>
+
+    <div class="callout callout-green">
+      <div class="callout-label">Quick tip</div>
+      <p>Use <code>asyncpg</code> (not psycopg2) for your database driver because FastAPI is async and asyncpg is non-blocking. Your save_detection function should be <code>async def</code> and use <code>await</code>. Otherwise your whole server freezes every time you write to the database.</p>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 5: DASHBOARD -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">05</span>
+      <h2>Dashboard — Streamlit + Folium + Live Video</h2>
+    </div>
+
+    <p>The dashboard is what judges will actually look at during the demo. It needs to do four things: show the live annotated drone feed, show the GPS map with pins appearing in real time, show the LLM report panel, and have a text input box for the defect query.</p>
+
+    <h3>Layout structure</h3>
+    <div class="card">
+      <p style="font-size: 13px; font-family: 'Fira Code', monospace; line-height: 2;">
+        ┌─────────────────────────────────────────────────────────────┐<br>
+        │  HAWK-I DASHBOARD    [text query input]    [Generate Report]│<br>
+        ├──────────────────────────┬──────────────────────────────────┤<br>
+        │                          │                                  │<br>
+        │   LIVE DRONE FEED        │        GPS DEFECT MAP            │<br>
+        │   (MJPEG stream)         │        (Folium map with          │<br>
+        │   AI boxes overlaid      │         colour-coded pins)       │<br>
+        │                          │                                  │<br>
+        ├──────────────────────────┴──────────────────────────────────┤<br>
+        │   LLM REPORT PANEL  (scrolling detections + severity)       │<br>
+        └─────────────────────────────────────────────────────────────┘
+      </p>
+    </div>
+
+    <h3>The Streamlit app structure</h3>
+    <div class="codeblock">
+<span class="cc"># dashboard/app.py</span>
+<span class="ck">import</span> streamlit <span class="ck">as</span> st
+<span class="ck">import</span> folium, websockets, asyncio, json
+<span class="ck">from</span> streamlit_folium <span class="ck">import</span> st_folium
+
+st.<span class="cf">set_page_config</span>(layout=<span class="cs">"wide"</span>, page_title=<span class="cs">"Hawk-I"</span>)
+st.<span class="cf">title</span>(<span class="cs">"🦅 Hawk-I — Structural Inspection Dashboard"</span>)
+
+<span class="cc"># ── TEXT QUERY INPUT (at the top) ──────────────────────────────</span>
+<span class="cv">query</span> = st.<span class="cf">text_input</span>(
+    <span class="cs">"What should the drone look for?"</span>,
+    placeholder=<span class="cs">"e.g. cracked concrete . rust stain . exposed rebar"</span>
+)
+<span class="ck">if</span> st.<span class="cf">button</span>(<span class="cs">"Send to Drone"</span>) <span class="ck">and</span> query:
+    <span class="cf">send_query_to_backend</span>(query)  <span class="cc"># POST /query to FastAPI</span>
+
+<span class="cc"># ── TWO COLUMN LAYOUT ──────────────────────────────────────────</span>
+<span class="cv">col1</span>, <span class="cv">col2</span> = st.<span class="cf">columns</span>([<span class="cn">1</span>, <span class="cn">1</span>])
+
+<span class="ck">with</span> col1:
+    st.<span class="cf">subheader</span>(<span class="cs">"Live Drone Feed"</span>)
+    <span class="cc"># MJPEG stream from FastAPI — just embed an img tag</span>
+    st.<span class="cf">markdown</span>(<span class="cs">'&lt;img src="http://localhost:8000/video_feed" width="100%"&gt;'</span>,
+                unsafe_allow_html=<span class="ck">True</span>)
+
+<span class="ck">with</span> col2:
+    st.<span class="cf">subheader</span>(<span class="cs">"Defect Map"</span>)
+    <span class="cv">m</span> = folium.<span class="cf">Map</span>(location=[<span class="cn">12.97</span>, <span class="cn">77.59</span>], zoom_start=<span class="cn">18</span>)
+    <span class="cc"># Pins are added dynamically via WebSocket (see below)</span>
+    <span class="cf">st_folium</span>(m, width=<span class="cn">700</span>, height=<span class="cn">400</span>)
+
+<span class="cc"># ── REPORT PANEL ───────────────────────────────────────────────</span>
+st.<span class="cf">subheader</span>(<span class="cs">"Live Inspection Report"</span>)
+<span class="cv">report_container</span> = st.<span class="cf">container</span>()
+<span class="cc"># LLM entries get appended here as they arrive via WebSocket</span>
+
+<span class="ck">if</span> st.<span class="cf">button</span>(<span class="cs">"📄 Generate PDF Report"</span>):
+    <span class="cv">pdf_bytes</span> = <span class="cf">requests_get_pdf</span>()  <span class="cc"># GET /report/pdf from FastAPI</span>
+    st.<span class="cf">download_button</span>(<span class="cs">"Download Report"</span>, pdf_bytes, <span class="cs">"hawki_report.pdf"</span>)
+    </div>
+
+    <h3>How live pins appear on the map</h3>
+    <p>This is the trickiest part of the dashboard. Streamlit re-renders the whole page on every interaction, so you can't just "add a pin" — you need to store pins in <code>st.session_state</code> and re-render the Folium map with all pins each time a new detection arrives.</p>
+
+    <div class="codeblock">
+<span class="cc"># Store pins across rerenders using session state</span>
+<span class="ck">if</span> <span class="cs">"pins"</span> <span class="ck">not in</span> st.session_state:
+    st.session_state.pins = []
+
+<span class="cc"># Poll your FastAPI for new detections every 2 seconds</span>
+<span class="ck">import</span> requests, time
+
+<span class="cv">new_detections</span> = requests.<span class="cf">get</span>(<span class="cs">"http://localhost:8000/detections/latest"</span>).json()
+<span class="ck">for</span> det <span class="ck">in</span> new_detections:
+    <span class="ck">if</span> det <span class="ck">not in</span> st.session_state.pins:
+        st.session_state.pins.<span class="cf">append</span>(det)
+
+<span class="cc"># Rebuild the Folium map with ALL pins each time</span>
+<span class="cv">m</span> = folium.<span class="cf">Map</span>(location=[<span class="cn">12.97</span>, <span class="cn">77.59</span>], zoom_start=<span class="cn">18</span>)
+<span class="cv">colour_map</span> = {<span class="cs">"L1"</span>: <span class="cs">"green"</span>, <span class="cs">"L2"</span>: <span class="cs">"orange"</span>, <span class="cs">"L3"</span>: <span class="cs">"red"</span>}
+
+<span class="ck">for</span> pin <span class="ck">in</span> st.session_state.pins:
+    folium.CircleMarker(
+        location=[pin[<span class="cs">"lat"</span>], pin[<span class="cs">"lon"</span>]],
+        radius=<span class="cn">8</span>,
+        color=colour_map[pin[<span class="cs">"severity"</span>]],
+        popup=<span class="cs">f"{pin['class']} — {pin['area_cm2']} cm² — {pin['severity']}"</span>
+    ).<span class="cf">add_to</span>(m)
+
+<span class="cf">st_folium</span>(m, width=<span class="cn">700</span>, height=<span class="cn">400</span>, key=<span class="cs">"defect_map"</span>)
+st.<span class="cf">rerun</span>()   <span class="cc"># auto-refresh every 2s using st.rerun()</span>
+    </div>
+
+    <div class="callout callout-orange">
+      <div class="callout-label">Important</div>
+      <p>Use <code>st.rerun()</code> with a <code>time.sleep(2)</code> at the bottom of your script to create a polling loop. This is the simplest way to make the map "live" in Streamlit without needing a complex WebSocket client inside the browser.</p>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 6: LLM PIPELINE -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">06</span>
+      <h2>LLM Pipeline — Gemma-3 + LangChain</h2>
+    </div>
+
+    <p>The LLM is what turns a detection event into a human-readable maintenance report entry. Here's exactly how to set it up and use it.</p>
+
+    <h3>Setting up Ollama + Gemma-3</h3>
+    <div class="codeblock">
+<span class="cc"># Step 1: Install Ollama on your laptop</span>
+<span class="cc"># Go to ollama.com, download and install for your OS</span>
+
+<span class="cc"># Step 2: Pull the Gemma-3 model (do this BEFORE the hackathon — it's 8GB)</span>
+ollama pull gemma3:12b
+
+<span class="cc"># Step 3: Run Ollama (it starts a local server at localhost:11434)</span>
+ollama serve
+
+<span class="cc"># Step 4: Test it works</span>
+curl http://localhost:11434/api/generate -d '{
+  "model": "gemma3:12b",
+  "prompt": "Say hello",
+  "stream": false
+}'
+    </div>
+
+    <h3>The LangChain prompt that generates the report</h3>
+    <div class="codeblock">
+<span class="cc"># backend/llm_worker.py</span>
+<span class="ck">from</span> langchain_community.llms <span class="ck">import</span> Ollama
+<span class="ck">from</span> langchain_core.output_parsers <span class="ck">import</span> JsonOutputParser
+<span class="ck">from</span> langchain_core.prompts <span class="ck">import</span> PromptTemplate
+<span class="ck">from</span> pydantic <span class="ck">import</span> BaseModel
+
+<span class="cc"># Define the exact structure you want from the LLM</span>
+<span class="ck">class</span> <span class="cf">DefectReport</span>(BaseModel):
+    severity_level: str        <span class="cc"># "L1", "L2", or "L3"</span>
+    severity_label: str        <span class="cc"># "Minor", "Moderate", "Critical"</span>
+    recommended_action: str    <span class="cc"># what to do</span>
+    urgency_days: int          <span class="cc"># how many days before action needed</span>
+    description: str           <span class="cc"># 2-sentence plain English summary</span>
+    estimated_cost_inr: str    <span class="cc"># e.g. "₹50,000 – ₹1,20,000"</span>
+
+<span class="cv">llm</span> = <span class="cf">Ollama</span>(model=<span class="cs">"gemma3:12b"</span>, base_url=<span class="cs">"http://localhost:11434"</span>)
+<span class="cv">parser</span> = <span class="cf">JsonOutputParser</span>(pydantic_object=DefectReport)
+
+<span class="cv">prompt</span> = <span class="cf">PromptTemplate</span>(
+    template=<span class="cs">"""
+You are a structural engineering assistant for Indian infrastructure inspection.
+A drone has detected the following defect:
+
+Defect type: {defect_class}
+Confidence: {confidence}%
+Measured area: {area_cm2} cm²
+GPS location: {lat}, {lon}
+Structure type: Bridge / Public Building
+
+Based on IRC 22-2015 standards, provide a structured assessment.
+Respond ONLY with a valid JSON object matching this schema:
+{format_instructions}
+"""</span>,
+    input_variables=[<span class="cs">"defect_class"</span>, <span class="cs">"confidence"</span>, <span class="cs">"area_cm2"</span>, <span class="cs">"lat"</span>, <span class="cs">"lon"</span>],
+    partial_variables={<span class="cs">"format_instructions"</span>: parser.<span class="cf">get_format_instructions</span>()}
+)
+
+<span class="cv">chain</span> = prompt | llm | parser
+
+<span class="cc"># Call this function for each detection</span>
+<span class="ck">async def</span> <span class="cf">generate_report_entry</span>(detection: dict) -> DefectReport:
+    <span class="ck">return await</span> chain.<span class="cf">ainvoke</span>({
+        <span class="cs">"defect_class"</span>: detection[<span class="cs">"class"</span>],
+        <span class="cs">"confidence"</span>: <span class="cf">round</span>(detection[<span class="cs">"conf"</span>] * <span class="cn">100</span>, <span class="cn">1</span>),
+        <span class="cs">"area_cm2"</span>: detection[<span class="cs">"area_cm2"</span>],
+        <span class="cs">"lat"</span>: detection[<span class="cs">"gps"</span>][<span class="cs">"lat"</span>],
+        <span class="cs">"lon"</span>: detection[<span class="cs">"gps"</span>][<span class="cs">"lon"</span>]
+    })
+    </div>
+
+    <div class="callout callout-purple">
+      <div class="callout-label">Key insight</div>
+      <p>The <code>JsonOutputParser</code> with a Pydantic model tells LangChain to validate that Gemma-3's output matches the schema. If the LLM returns badly formatted JSON, LangChain throws an error you can catch. Always wrap LLM calls in try/except during the hackathon — LLMs occasionally output garbage.</p>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 7: FOLDER STRUCTURE -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">07</span>
+      <h2>Project Folder Structure</h2>
+    </div>
+
+    <p>Keep this clean from day one. A messy folder at 2am during the hackathon will cost you an hour.</p>
+
+    <div class="filetree">
+<span class="ft-dir">hawki/</span>
+├── <span class="ft-dir">backend/</span>                   <span class="ft-comment"># YOUR main job (S1)</span>
+│   ├── <span class="ft-file">main.py</span>               <span class="ft-comment"># FastAPI app, WebSocket endpoints</span>
+│   ├── <span class="ft-file">sam3_worker.py</span>        <span class="ft-comment"># SAM 3 segmentation + area calc</span>
+│   ├── <span class="ft-file">dinov2_worker.py</span>      <span class="ft-comment"># DINOv2 anomaly baseline (build last)</span>
+│   ├── <span class="ft-file">llm_worker.py</span>         <span class="ft-comment"># Gemma-3 report generation</span>
+│   ├── <span class="ft-file">database.py</span>           <span class="ft-comment"># asyncpg PostGIS operations</span>
+│   ├── <span class="ft-file">report_gen.py</span>         <span class="ft-comment"># WeasyPrint PDF generator</span>
+│   ├── <span class="ft-file">video_stream.py</span>       <span class="ft-comment"># MJPEG feed endpoint</span>
+│   └── <span class="ft-file">models.py</span>             <span class="ft-comment"># Pydantic schemas for detection data</span>
+│
+├── <span class="ft-dir">dashboard/</span>                 <span class="ft-comment"># YOUR second job (S2)</span>
+│   ├── <span class="ft-file">app.py</span>                <span class="ft-comment"># Main Streamlit app</span>
+│   ├── <span class="ft-file">map_utils.py</span>          <span class="ft-comment"># Folium map builder with pins</span>
+│   └── <span class="ft-file">report_template.html</span>  <span class="ft-comment"># WeasyPrint HTML template for PDF</span>
+│
+├── <span class="ft-dir">drone/</span>                     <span class="ft-comment"># HW team's code (runs on Jetson)</span>
+│   ├── <span class="ft-file">edge_inference.py</span>     <span class="ft-comment"># YOLO + GDINO inference loop</span>
+│   └── <span class="ft-file">mavlink_gps.py</span>        <span class="ft-comment"># GPS telemetry reader</span>
+│
+├── <span class="ft-dir">data/</span>
+│   ├── <span class="ft-dir">frames/</span>               <span class="ft-comment"># saved annotated images from mission</span>
+│   └── <span class="ft-dir">reports/</span>              <span class="ft-comment"># generated PDF reports</span>
+│
+├── <span class="ft-dir">models/</span>                    <span class="ft-comment"># model weights (download before hackathon)</span>
+│   ├── <span class="ft-file">sam3_small.pth</span>
+│   └── <span class="ft-file">dinov2_b14.pth</span>
+│
+├── <span class="ft-file">requirements.txt</span>
+├── <span class="ft-file">docker-compose.yml</span>         <span class="ft-comment"># spins up PostgreSQL + PostGIS easily</span>
+└── <span class="ft-file">.env</span>                       <span class="ft-comment"># OPENAI_API_KEY, DB_URL, etc.</span>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 8: BUILD ORDER -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">08</span>
+      <h2>Your Build Order — What to Do First</h2>
+    </div>
+
+    <div class="callout callout-orange">
+      <div class="callout-label">The rule</div>
+      <p><strong>Build in layers. Never build in parallel before the core works.</strong> The demo-winning moment is: text typed → drone finds it → pin appears on map. Build that first. Add every other layer on top only after that works end-to-end.</p>
+    </div>
+
+    <h3>Layer 1 — The skeleton (do this first, Day 1)</h3>
+    <div class="card">
+      <div class="check-item">
+        <div class="check-box"></div>
+        <div class="check-text"><strong>Set up FastAPI with a dummy WebSocket endpoint.</strong> Make it accept a connection and print received messages. Test with a Python WebSocket client sending fake JSON. Don't touch any AI yet.</div>
+        <div class="check-priority p-crit">CRITICAL</div>
+      </div>
+      <div class="check-item">
+        <div class="check-box"></div>
+        <div class="check-text"><strong>Set up PostGIS with Docker.</strong> Run <code>docker-compose up</code> with a postgres+postgis image. Create the detections table. Test a manual INSERT and SELECT.</div>
+        <div class="check-priority p-crit">CRITICAL</div>
+      </div>
+      <div class="check-item">
+        <div class="check-box"></div>
+        <div class="check-text"><strong>Build the Streamlit dashboard skeleton.</strong> Just the two-column layout — left column has a placeholder image, right column has a blank Folium map centred on your test location. Text query input at the top. Nothing dynamic yet.</div>
+        <div class="check-priority p-crit">CRITICAL</div>
+      </div>
+      <div class="check-item">
+        <div class="check-box"></div>
+        <div class="check-text"><strong>Wire the fake detection flow.</strong> Write a script that sends a fake detection JSON to your WebSocket every 3 seconds. Make your backend receive it, INSERT into PostGIS, and serve it from <code>GET /detections/latest</code>. Make the dashboard poll that endpoint and drop a pin. <strong>When this works with fake data, your core loop is done.</strong></div>
+        <div class="check-priority p-crit">CRITICAL</div>
+      </div>
+    </div>
+
+    <h3>Layer 2 — Real AI (Day 1 evening / Day 2)</h3>
+    <div class="card">
+      <div class="check-item">
+        <div class="check-box"></div>
+        <div class="check-text"><strong>Swap fake data for real drone data.</strong> Have the HW team connect their Jetson WebSocket to your server. Replace your fake JSON with real detection JSON from the Jetson. Verify the same pin-drop flow works with real data.</div>
+        <div class="check-priority p-crit">CRITICAL</div>
+      </div>
+      <div class="check-item">
+        <div class="check-box"></div>
+        <div class="check-text"><strong>Add SAM 3.</strong> Install <code>segment-anything-3</code>. Write <code>sam3_worker.py</code> — accepts a frame + bounding box, returns (mask, area_cm2). Plug it into the WebSocket receiver after you decode the frame. Test on a saved image before connecting live.</div>
+        <div class="check-priority p-high">HIGH</div>
+      </div>
+      <div class="check-item">
+        <div class="check-box"></div>
+        <div class="check-text"><strong>Add the MJPEG video feed.</strong> Write a <code>/video_feed</code> endpoint in FastAPI that streams the latest annotated frame as MJPEG. Embed it in the Streamlit dashboard with a raw HTML img tag. This makes the demo feel live and impressive.</div>
+        <div class="check-priority p-high">HIGH</div>
+      </div>
+      <div class="check-item">
+        <div class="check-box"></div>
+        <div class="check-text"><strong>Set up Ollama + Gemma-3 and test the LLM prompt.</strong> Pull the model, run Ollama, test your LangChain chain with a hardcoded detection dict. Make sure the JSON output parses correctly via Pydantic before wiring it into the live flow.</div>
+        <div class="check-priority p-high">HIGH</div>
+      </div>
+    </div>
+
+    <h3>Layer 3 — Polish (Day 3)</h3>
+    <div class="card">
+      <div class="check-item">
+        <div class="check-box"></div>
+        <div class="check-text"><strong>Wire LLM to live detections.</strong> Use FastAPI's <code>BackgroundTasks</code> to call <code>generate_report_entry()</code> for each high-confidence detection without blocking the WebSocket loop. Push report entries to the dashboard report panel.</div>
+        <div class="check-priority p-high">HIGH</div>
+      </div>
+      <div class="check-item">
+        <div class="check-box"></div>
+        <div class="check-text"><strong>Build the PDF report generator.</strong> Write an HTML template, query PostGIS for all detections sorted by severity, pass to WeasyPrint. Add a download button in Streamlit. Test with your saved detections from Day 2's flights.</div>
+        <div class="check-priority p-high">HIGH</div>
+      </div>
+      <div class="check-item">
+        <div class="check-box"></div>
+        <div class="check-text"><strong>Add offline demo mode.</strong> Add a toggle in Streamlit that loads detections from a saved JSON file instead of polling the live backend. This is your safety net if the drone can't fly during the demo.</div>
+        <div class="check-priority p-med">MEDIUM</div>
+      </div>
+      <div class="check-item">
+        <div class="check-box"></div>
+        <div class="check-text"><strong>Add DINOv2 anomaly scoring.</strong> Only build this if Layers 1–3 are solid. It's impressive but not critical for the demo moment.</div>
+        <div class="check-priority p-med">MEDIUM</div>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 9: ENVIRONMENT SETUP -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">09</span>
+      <h2>Environment Setup</h2>
+    </div>
+
+    <h3>Install everything before the hackathon starts</h3>
+    <div class="codeblock">
+<span class="cc"># 1. Create a virtual environment</span>
+python -m venv hawki_env
+source hawki_env/bin/activate    <span class="cc"># Windows: hawki_env\Scripts\activate</span>
+
+<span class="cc"># 2. Install all Python packages</span>
+pip install fastapi uvicorn websockets asyncpg python-dotenv
+pip install torch torchvision          <span class="cc"># PyTorch for SAM3 + DINOv2</span>
+pip install segment-anything-3         <span class="cc"># SAM 3</span>
+pip install timm                       <span class="cc"># DINOv2 via timm</span>
+pip install langchain langchain-community langchain-core
+pip install streamlit streamlit-folium folium
+pip install plotly weasyprint
+pip install opencv-python-headless numpy pillow
+pip install scikit-learn               <span class="cc"># for DBSCAN dedup</span>
+pip install psycopg2-binary            <span class="cc"># for sync DB ops if needed</span>
+
+<span class="cc"># 3. Start PostgreSQL + PostGIS via Docker</span>
+<span class="cc"># Create docker-compose.yml with:</span>
+<span class="cc"># image: postgis/postgis:16-3.4</span>
+<span class="cc"># ports: "5432:5432"</span>
+<span class="cc"># environment: POSTGRES_PASSWORD=hawki</span>
+docker-compose up -d
+
+<span class="cc"># 4. Download model weights (do this on good WiFi before hackathon)</span>
+<span class="cc"># SAM 3 Small checkpoint (~400MB)</span>
+wget https://dl.fbaipublicfiles.com/segment_anything_3/sam3_small.pth -P models/
+
+<span class="cc"># 5. Pull Gemma-3 via Ollama (~8GB — do this the night before)</span>
+ollama pull gemma3:12b
+
+<span class="cc"># 6. Run the backend</span>
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+
+<span class="cc"># 7. Run the dashboard (separate terminal)</span>
+streamlit run dashboard/app.py
+    </div>
+
+    <h3>Your requirements.txt</h3>
+    <div class="codeblock">
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+websockets==12.0
+asyncpg==0.29.0
+python-dotenv==1.0.0
+torch>=2.3.0
+torchvision>=0.18.0
+segment-anything-3>=1.0.0
+timm>=1.0.0
+langchain==0.3.0
+langchain-community==0.3.0
+langchain-core==0.3.0
+streamlit==1.38.0
+streamlit-folium==0.22.0
+folium==0.17.0
+plotly==5.24.0
+weasyprint==62.3
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+pillow==10.4.0
+scikit-learn==1.5.0
+psycopg2-binary==2.9.9
+    </div>
+
+    <div class="callout callout-green">
+      <div class="callout-label">Before the hackathon starts — critical prep</div>
+      <p><strong>Download everything in advance on good WiFi.</strong> PyTorch alone is 2GB+. Gemma-3 is 8GB. SAM 3 weights are 400MB. If you try to download these on hackathon WiFi shared with 200 teams, you will lose 3–4 hours. Pull everything the night before and store locally.</p>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <span>hawk-i · software developer guide · internal</span>
+    <span>equinox '26 · open innovation track</span>
+  </div>
+
+</div>
+</body>
+</html>

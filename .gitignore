@@ -1,5 +1,7 @@
 # Virtual environment
 hawki_env/
+venv/
+.venv/
 
 # Python cache
 __pycache__/
@@ -14,10 +16,20 @@ __pycache__/
 models/*.pt
 models/*.pth
 models/*.safetensors
+models/*.onnx
 
 # Database
 *.db
 *.sqlite
+
+# Runtime data / logs
+backend/detections.jsonl
+detections.jsonl
+captures/
+
+# Auto-generated reports
+reports/
+*.pdf
 
 # IDE
 .vscode/
@@ -26,3 +38,11 @@ models/*.safetensors
 # OS
 .DS_Store
 Thumbs.db
+
+# Microsoft Office temp files
+~$*.docx
+~$*.xlsx
+~$*.pptx
+
+# Claude Code internals
+.claude/

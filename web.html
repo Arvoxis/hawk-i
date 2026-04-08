@@ -1,0 +1,1310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZeroDefect — India Blueprint</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Karla:ital,wght@0,300;0,400;0,500;0,600;1,300&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d0f;
+    --surface: #111416;
+    --surface2: #181c20;
+    --border: #232830;
+    --border2: #2e3640;
+    --text: #c4cdd6;
+    --text-dim: #5a6472;
+    --text-bright: #eef2f6;
+    --saffron: #e8761a;
+    --saffron-dim: rgba(232,118,26,0.15);
+    --saffron-border: rgba(232,118,26,0.35);
+    --green: #2ecc85;
+    --green-dim: rgba(46,204,133,0.12);
+    --green-border: rgba(46,204,133,0.3);
+    --blue: #4a9eff;
+    --blue-dim: rgba(74,158,255,0.1);
+    --blue-border: rgba(74,158,255,0.3);
+    --red: #e84855;
+    --red-dim: rgba(232,72,85,0.1);
+    --purple: #a78bfa;
+    --gold: #f5c842;
+    --gold-dim: rgba(245,200,66,0.1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Karla', sans-serif;
+    font-size: 14px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* subtle noise */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.4;
+  }
+
+  .page {
+    max-width: 1020px;
+    margin: 0 auto;
+    padding: 56px 36px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ─── HERO ─── */
+  .hero {
+    position: relative;
+    margin-bottom: 64px;
+    padding-bottom: 40px;
+    border-bottom: 1px solid var(--border);
+  }
+  .hero-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--saffron);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .hero-eyebrow::after { content: ''; flex: 1; height: 1px; background: var(--saffron-border); }
+  h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 80px;
+    font-weight: 900;
+    color: var(--text-bright);
+    line-height: 0.95;
+    letter-spacing: -2px;
+    margin-bottom: 12px;
+  }
+  h1 em { color: var(--saffron); font-style: italic; }
+  .hero-tagline {
+    font-family: 'Playfair Display', serif;
+    font-size: 20px;
+    font-weight: 700;
+    font-style: italic;
+    color: var(--text-dim);
+    margin-bottom: 28px;
+  }
+  .hero-desc {
+    font-size: 15px;
+    color: var(--text);
+    max-width: 680px;
+    line-height: 1.8;
+    font-weight: 300;
+    margin-bottom: 32px;
+  }
+  .hero-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin-top: 32px;
+  }
+  .stat-cell {
+    background: var(--surface);
+    padding: 20px 18px;
+  }
+  .stat-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 36px;
+    font-weight: 900;
+    color: var(--saffron);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .stat-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  /* ─── SECTION HEADERS ─── */
+  .sec {
+    margin-bottom: 52px;
+  }
+  .sec-header {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 28px;
+  }
+  .sec-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--saffron);
+    background: var(--saffron-dim);
+    border: 1px solid var(--saffron-border);
+    padding: 4px 12px;
+    letter-spacing: 2px;
+    margin-right: 16px;
+    flex-shrink: 0;
+  }
+  h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: -0.5px;
+  }
+  .sec-line { flex: 1; height: 1px; background: var(--border); margin-left: 16px; }
+
+  /* ─── BODY TEXT ─── */
+  p { color: var(--text); font-weight: 300; margin-bottom: 14px; line-height: 1.8; }
+  strong { font-weight: 600; color: var(--text-bright); }
+  em { font-style: italic; color: var(--text); }
+
+  /* ─── CARDS ─── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .card-saffron { border-left: 3px solid var(--saffron); }
+  .card-green { border-left: 3px solid var(--green); }
+  .card-blue { border-left: 3px solid var(--blue); }
+  .card-gold { border-left: 3px solid var(--gold); }
+  .card-purple { border-left: 3px solid var(--purple); }
+  .card-red { border-left: 3px solid var(--red); }
+
+  h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h4 {
+    font-family: 'Playfair Display', serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin-bottom: 8px;
+    letter-spacing: -0.3px;
+  }
+
+  /* ─── GRIDS ─── */
+  .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .g21 { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+  .g12 { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; }
+
+  /* ─── BIG QUOTE ─── */
+  .big-quote {
+    border-left: 4px solid var(--saffron);
+    padding: 20px 24px;
+    background: var(--saffron-dim);
+    margin: 24px 0;
+    font-family: 'Playfair Display', serif;
+    font-size: 18px;
+    font-style: italic;
+    color: var(--text-bright);
+    line-height: 1.6;
+  }
+  .big-quote span {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-style: normal;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    margin-top: 10px;
+    text-transform: uppercase;
+  }
+
+  /* ─── CALLOUT ─── */
+  .callout {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-left: 4px solid var(--green);
+    padding: 20px 24px;
+    margin: 20px 0;
+  }
+  .callout-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: 8px;
+  }
+  .callout-text { font-size: 13px; color: var(--text); line-height: 1.75; font-weight: 300; }
+  .callout-text strong { color: var(--text-bright); }
+
+  /* ─── SPEC TABLE ─── */
+  .spec { width: 100%; border-collapse: collapse; }
+  .spec tr { border-bottom: 1px solid var(--border); }
+  .spec tr:last-child { border-bottom: none; }
+  .spec td { padding: 9px 0; font-size: 13px; vertical-align: top; }
+  .spec td:first-child {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    width: 150px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding-right: 16px;
+    padding-top: 11px;
+  }
+  .spec td:last-child { color: var(--text-bright); }
+
+  /* ─── TAGS ─── */
+  .tag {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 3px 8px;
+    border: 1px solid var(--border2);
+    color: var(--text-dim);
+    margin: 3px 2px;
+  }
+  .tag-s { border-color: var(--saffron-border); color: var(--saffron); background: var(--saffron-dim); }
+  .tag-g { border-color: var(--green-border); color: var(--green); background: var(--green-dim); }
+  .tag-b { border-color: var(--blue-border); color: var(--blue); background: var(--blue-dim); }
+  .tag-gold { border-color: rgba(245,200,66,0.3); color: var(--gold); background: var(--gold-dim); }
+  .tag-p { border-color: rgba(167,139,250,0.3); color: var(--purple); background: rgba(167,139,250,0.08); }
+
+  /* ─── ARCH ─── */
+  .arch {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 32px;
+    margin: 16px 0;
+  }
+  .arch-lbl {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    text-align: center;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed var(--border2);
+  }
+  .arch-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .arch-box {
+    border: 1px solid var(--border2);
+    padding: 8px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    text-align: center;
+    white-space: nowrap;
+    line-height: 1.5;
+  }
+  .ab-s { border-color: var(--saffron-border); color: var(--saffron); background: var(--saffron-dim); }
+  .ab-g { border-color: var(--green-border); color: var(--green); background: var(--green-dim); }
+  .ab-b { border-color: var(--blue-border); color: var(--blue); background: var(--blue-dim); }
+  .ab-gold { border-color: rgba(245,200,66,0.3); color: var(--gold); background: var(--gold-dim); }
+  .arch-arr { color: var(--text-dim); font-size: 12px; flex-shrink: 0; }
+  .arch-sep { border: none; border-top: 1px dashed var(--border); margin: 14px 0; }
+
+  /* ─── PIPELINE ─── */
+  .pipe-step {
+    display: grid;
+    grid-template-columns: 44px 2px 1fr;
+    gap: 0 18px;
+  }
+  .p-num {
+    width: 44px; height: 44px;
+    border: 1px solid var(--border2);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--saffron);
+    background: var(--saffron-dim);
+    flex-shrink: 0;
+  }
+  .p-line {
+    width: 2px;
+    background: var(--border);
+    margin: 0 auto;
+    min-height: 24px;
+    height: 100%;
+  }
+  .p-body { padding-bottom: 28px; padding-top: 10px; }
+  .p-title {
+    font-family: 'Karla', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 6px;
+  }
+  .p-detail { font-size: 13px; color: var(--text); font-weight: 300; line-height: 1.7; }
+
+  /* ─── METRIC BARS ─── */
+  .mbar { margin-bottom: 12px; }
+  .mbar-top { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 12px; }
+  .mbar-label { color: var(--text-dim); }
+  .mbar-val { font-family: 'JetBrains Mono', monospace; color: var(--saffron); }
+  .mbar-bg { background: var(--border); height: 3px; position: relative; }
+  .mbar-fill { height: 3px; position: absolute; top: 0; left: 0; background: var(--saffron); }
+  .fill-g { background: var(--green); }
+  .fill-b { background: var(--blue); }
+
+  /* ─── CODE ─── */
+  .code {
+    background: #060809;
+    border: 1px solid var(--border);
+    padding: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.9;
+    overflow-x: auto;
+    margin-top: 12px;
+    color: #8bb4c8;
+  }
+  .c-cm { color: #2e4a5a; }
+  .c-kw { color: var(--saffron); }
+  .c-st { color: var(--green); }
+  .c-fn { color: var(--blue); }
+  .c-vr { color: var(--purple); }
+
+  /* ─── TIMELINE (3-day plan) ─── */
+  .day-block {
+    border: 1px solid var(--border);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .day-header {
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .day-header.d1 { background: var(--saffron-dim); border-bottom: 1px solid var(--saffron-border); }
+  .day-header.d2 { background: var(--blue-dim); border-bottom: 1px solid var(--blue-border); }
+  .day-header.d3 { background: var(--green-dim); border-bottom: 1px solid var(--green-border); }
+  .day-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 28px;
+    font-weight: 900;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .d1 .day-num { color: var(--saffron); }
+  .d2 .day-num { color: var(--blue); }
+  .d3 .day-num { color: var(--green); }
+  .day-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+  .day-focus {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .day-body {
+    padding: 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .lane-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    padding: 4px 10px;
+    display: inline-block;
+  }
+  .lane-hw { color: var(--saffron); background: var(--saffron-dim); border: 1px solid var(--saffron-border); }
+  .lane-sw { color: var(--blue); background: var(--blue-dim); border: 1px solid var(--blue-border); }
+  .task-list { list-style: none; }
+  .task-list li {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 300;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    line-height: 1.5;
+  }
+  .task-list li:last-child { border-bottom: none; }
+  .task-list li::before {
+    content: '▸';
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-top: 2px;
+    flex-shrink: 0;
+  }
+  .task-crit::before { color: var(--saffron) !important; }
+  .task-done { opacity: 0.5; text-decoration: line-through; }
+
+  /* ─── PERSON CARDS ─── */
+  .person-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 16px; }
+  .person-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 16px;
+    text-align: center;
+  }
+  .person-avatar {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    margin: 0 auto 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Playfair Display', serif;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .av-hw { background: var(--saffron-dim); border: 1px solid var(--saffron-border); color: var(--saffron); }
+  .av-sw { background: var(--blue-dim); border: 1px solid var(--blue-border); color: var(--blue); }
+  .person-role {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  .person-name { font-size: 13px; font-weight: 600; color: var(--text-bright); margin-bottom: 6px; }
+  .person-tasks { font-size: 11px; color: var(--text-dim); font-weight: 300; line-height: 1.5; }
+
+  /* ─── BUSINESS MODEL ─── */
+  .biz-tier {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .biz-tier.featured { border-color: var(--saffron-border); }
+  .biz-tier.featured::before {
+    content: 'PRIMARY';
+    position: absolute;
+    top: 10px; right: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 2px;
+    background: var(--saffron);
+    color: var(--bg);
+    padding: 3px 8px;
+  }
+  .biz-price {
+    font-family: 'Playfair Display', serif;
+    font-size: 32px;
+    font-weight: 900;
+    color: var(--saffron);
+    line-height: 1;
+    margin: 8px 0 4px;
+  }
+  .biz-period { font-size: 12px; color: var(--text-dim); margin-bottom: 12px; }
+  .biz-features { list-style: none; }
+  .biz-features li {
+    font-size: 12px;
+    color: var(--text);
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 8px; align-items: flex-start;
+    font-weight: 300;
+  }
+  .biz-features li:last-child { border-bottom: none; }
+  .biz-features li::before { content: '✓'; color: var(--green); font-size: 11px; flex-shrink: 0; margin-top: 1px; }
+
+  /* ─── USP BLOCKS ─── */
+  .usp-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 48px;
+    font-weight: 900;
+    color: var(--saffron);
+    opacity: 0.3;
+    line-height: 1;
+    margin-bottom: -8px;
+  }
+  .usp-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 6px;
+  }
+  .usp-body { font-size: 13px; color: var(--text); font-weight: 300; line-height: 1.7; }
+
+  /* ─── COMPARE TABLE ─── */
+  .cmp { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .cmp th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border2);
+    padding: 10px 14px 10px 0;
+    text-align: left;
+  }
+  .cmp td {
+    padding: 10px 14px 10px 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-weight: 300;
+    vertical-align: top;
+  }
+  .cmp td:first-child { font-weight: 600; color: var(--text-bright); }
+  .cmp tr:last-child td { border-bottom: none; }
+  .yes { color: var(--green); font-weight: 600; }
+  .no { color: var(--red); font-weight: 600; }
+
+  /* ─── DIVIDER ─── */
+  hr { border: none; border-top: 1px solid var(--border); margin: 48px 0; }
+
+  /* ─── FOOTER ─── */
+  .footer {
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
+    display: flex;
+    justify-content: space-between;
+    margin-top: 48px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* ─── INDIA FLAG ACCENT ─── */
+  .flag-strip {
+    display: flex;
+    height: 4px;
+    margin-bottom: 48px;
+    gap: 0;
+  }
+  .flag-strip .f1 { flex: 1; background: #FF9933; }
+  .flag-strip .f2 { flex: 1; background: #FFFFFF; opacity: 0.15; }
+  .flag-strip .f3 { flex: 1; background: #138808; }
+
+  @media (max-width: 700px) {
+    h1 { font-size: 48px; }
+    .g2, .g3, .g21, .g12 { grid-template-columns: 1fr; }
+    .hero-stats { grid-template-columns: 1fr 1fr; }
+    .day-body { grid-template-columns: 1fr; }
+    .person-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- FLAG STRIP -->
+  <div class="flag-strip"><div class="f1"></div><div class="f2"></div><div class="f3"></div></div>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-eyebrow">Equinox '26 &nbsp;·&nbsp; Open Innovation + Security &nbsp;·&nbsp; Made for India</div>
+    <h1>Zero<em>Defect</em></h1>
+    <div class="hero-tagline">India's Infrastructure, Inspected by AI — Not by Human Lives</div>
+    <p class="hero-desc">
+      India's bridges, flyovers, hospitals, dams, and industrial plants are inspected manually — by workers dangling from ropes, or not inspected at all. ZeroDefect deploys an autonomous drone with zero-shot AI vision and LLM reasoning to detect any structural defect a client describes in plain Hindi or English. No training data. No labeling. No delay. Just fly, describe, inspect.
+    </p>
+    <div class="hero-stats">
+      <div class="stat-cell">
+        <div class="stat-num">₹3.5L Cr</div>
+        <div class="stat-label">India infra investment (2024–25 Union Budget)</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-num">45+</div>
+        <div class="stat-label">Major bridge collapses in India since 2000</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-num">0</div>
+        <div class="stat-label">Training images needed by ZeroDefect</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-num">90 min</div>
+        <div class="stat-label">Full bridge inspection vs. 2-day manual audit</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 1: PROBLEM STATEMENT -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">01</span>
+      <h2>The Problem — India's Infrastructure Crisis</h2>
+      <div class="sec-line"></div>
+    </div>
+
+    <div class="big-quote">
+      "India has over 1.5 lakh bridges, thousands of government buildings, hundreds of dams, and crores of square feet of industrial infrastructure — and almost none of it is inspected with any form of intelligence or regularity."
+      <span>Ground reality, 2024</span>
+    </div>
+
+    <div class="g2">
+      <div>
+        <p>India is in the middle of the <strong>largest infrastructure buildout in its history</strong>. The government allocated ₹11.11 lakh crore for infrastructure in the 2024–25 budget — roads, bridges, railways, smart cities, hospitals, airports. But here is the problem nobody talks about: <strong>we build fast, but we inspect slow — or not at all.</strong></p>
+
+        <p>India's National Highway bridges average <strong>over 30 years of age</strong>. Majerhat bridge in Kolkata collapsed in 2018. The Savitri bridge in Raigad killed 28 in 2016. The Morbi bridge in Gujarat killed 135 in 2022. In every case, the same conclusion in the inquiry: <em>no proper inspection had been done in years.</em></p>
+
+        <p>This is not a budget problem. India spends billions on infrastructure. This is a <strong>methodology problem</strong> — the inspection process is archaic, manual, dangerous, and completely unscalable.</p>
+      </div>
+      <div>
+        <div class="card card-red">
+          <h3>How inspections happen today in India</h3>
+          <div style="margin-top: 4px;">
+            <div style="padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 300;">
+              <strong style="color: var(--text-bright);">Manual rope access</strong><br>
+              Workers lowered by ropes to inspect bridge undersides. Dangerous, expensive (₹5–15L per audit), covers only accessible sections.
+            </div>
+            <div style="padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 300;">
+              <strong style="color: var(--text-bright);">Visual inspection by juniors</strong><br>
+              PWD engineers walk the surface, tap with hammers, write notes. No quantification. Highly subjective. No GPS tagging.
+            </div>
+            <div style="padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 300;">
+              <strong style="color: var(--text-bright);">Inspection frequency</strong><br>
+              IRC standards say every 5 years. Reality: most bridges go 10–20 years without a structural audit.
+            </div>
+            <div style="padding: 10px 0; font-size: 13px; font-weight: 300;">
+              <strong style="color: var(--text-bright);">No digital record</strong><br>
+              Findings written in paper registers. No searchable database. No way to track deterioration over time.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="g3" style="margin-top: 8px;">
+      <div class="card card-saffron">
+        <h3>Scale of the problem</h3>
+        <h4>1.5 Lakh Bridges</h4>
+        <p style="font-size: 13px;">Across National and State Highways. Average age over 30 years. IRC mandates 5-year inspection cycles that are rarely followed.</p>
+      </div>
+      <div class="card card-saffron">
+        <h3>Worker safety</h3>
+        <h4>High-risk jobs</h4>
+        <p style="font-size: 13px;">Rope access inspection workers in India earn ₹800–1200/day with no insurance, no safety standards enforcement, and serious fall risk on every job.</p>
+      </div>
+      <div class="card card-saffron">
+        <h3>Beyond bridges</h3>
+        <h4>The full scope</h4>
+        <p style="font-size: 13px;">The same problem applies to: ISRO launch facilities, nuclear plant exteriors, thermal power plant cooling towers, hospital structural audits, smart city infrastructure, port cranes, and dam faces.</p>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 2: SOLUTION -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">02</span>
+      <h2>How ZeroDefect Solves It</h2>
+      <div class="sec-line"></div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-label">The solution in one line</div>
+      <div class="callout-text">
+        <strong>A drone-based AI inspection system where an engineer types "concrete spalling" or "सीमेंट की दरार" into a dashboard — and the drone instantly finds, segments, measures, and reports every instance of it across an entire structure.</strong> No training data. No custom models. No risk to human life.
+      </div>
+    </div>
+
+    <div class="g2" style="margin-top: 20px;">
+      <div>
+        <p>ZeroDefect has three core components working together. The <strong>drone</strong> acts as the mobile sensor platform — flying autonomous waypoint paths around, beneath, and alongside structures. The <strong>AI stack</strong> (Grounding DINO + SAM 3 + LLM) turns the camera feed into structured defect intelligence using natural language. The <strong>dashboard and report system</strong> turns that intelligence into immediately actionable outputs for engineers and government clients.</p>
+
+        <p>The key insight is that inspection engineers already know what they're looking for. They don't need the AI to be trained on thousands of images — they need to describe the defect in plain language and have the system find it. That's exactly what Grounding DINO enables. It's a foundation model that was trained on hundreds of millions of image-text pairs, so it already understands concepts like "rusted rebar," "efflorescence," "delaminated concrete," or "corroded cable" — without any fine-tuning.</p>
+
+        <p>After detection, <strong>SAM 3</strong> draws pixel-precise boundaries around each defect — allowing us to calculate exact crack length in centimetres and damaged area in cm². This is critical for Indian PWD reporting, which requires quantified severity ratings (L1/L2/L3) to trigger repair budgets. The <strong>LLM</strong> then generates a structured report entry in the format that state PWD departments actually require — in English and optionally Hindi.</p>
+      </div>
+      <div>
+        <div class="card card-green">
+          <h3>What changes with ZeroDefect</h3>
+          <table class="spec">
+            <tr><td>Inspection time</td><td>2–3 days → 90 minutes per structure</td></tr>
+            <tr><td>Human risk</td><td>High (rope access) → Zero (remote operation)</td></tr>
+            <tr><td>Coverage</td><td>Accessible areas only → Full 3D envelope</td></tr>
+            <tr><td>Documentation</td><td>Paper registers → GPS-tagged digital PDF</td></tr>
+            <tr><td>Defect quantification</td><td>Subjective → Measured in cm/cm²</td></tr>
+            <tr><td>Inspection frequency</td><td>Every 5–10 years → Every quarter</td></tr>
+            <tr><td>Historical tracking</td><td>None → AI-compared across time</td></tr>
+            <tr><td>Cost per inspection</td><td>₹5–15L → ₹80K–1.5L</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- HOW THE DRONE ACTUALLY WORKS -->
+    <h4 style="margin-top: 28px; font-family: 'Playfair Display', serif; font-size: 20px; color: var(--text-bright); margin-bottom: 16px;">Step-by-step: what happens during an inspection flight</h4>
+
+    <div class="pipe-step">
+      <div class="p-num">1</div>
+      <div class="p-line"></div>
+      <div class="p-body">
+        <div class="p-title">Mission briefing — engineer defines the inspection</div>
+        <div class="p-detail">The structural engineer opens the ZeroDefect dashboard on a laptop at the inspection site (could be a PWD office vehicle or a site tent). They upload the structure's boundary polygon on a satellite map, set the flight altitude (typically 5–12m for close inspection), and type the defect queries they want to search for: <em>"cracked concrete . spalling . exposed rebar . rust stain . water seepage marks"</em>. The system uploads these as a mission plan to the Pixhawk flight controller via MAVSDK.</div>
+        <div class="step-tags" style="margin-top: 8px;">
+          <span class="tag tag-b">QGroundControl</span><span class="tag tag-b">MAVSDK-Python</span><span class="tag tag-b">Mission Planner</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="p-num">2</div>
+      <div class="p-line"></div>
+      <div class="p-body">
+        <div class="p-title">Autonomous flight — drone patrols the structure</div>
+        <div class="p-detail">The quadcopter takes off and executes the pre-planned waypoint mission. It flies in a lawnmower/orbital pattern at the specified altitude, maintaining consistent distance from the structure surface via the FC's altitude hold. The 2-axis gimbal keeps the camera perpendicular to the surface at all times. The Jetson Orin Nano runs the full inference pipeline locally — no internet needed on-site. GPS coordinates are logged at 10Hz via MAVLink. An LTE module (Jio/Airtel 4G SIM) streams annotated video to the dashboard if available; if not, results are cached locally and pushed on landing.</div>
+        <div class="step-tags" style="margin-top: 8px;">
+          <span class="tag tag-s">ArduCopter SITL</span><span class="tag tag-s">Pixhawk 6C</span><span class="tag tag-s">HERE3+ RTK GPS</span><span class="tag tag-s">4G LTE fallback</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="p-num">3</div>
+      <div class="p-line"></div>
+      <div class="p-body">
+        <div class="p-title">Edge AI — real-time defect detection on Jetson</div>
+        <div class="p-detail">Two inference threads run simultaneously on the Jetson Orin Nano Super (67 TOPS). Thread A runs YOLO11n at 60+ FPS via TensorRT INT8 — a fast detector for known defect classes (crack, spalling, rust, missing bolt). Thread B runs Grounding DINO Edge at 8–12 FPS using the engineer's text queries — detecting anything described in natural language regardless of whether it was in any training set. Detections are fused using weighted NMS. Each detection is GPS-tagged by correlating the frame timestamp with MAVLink telemetry.</div>
+        <div class="step-tags" style="margin-top: 8px;">
+          <span class="tag tag-g">YOLO11n · TensorRT INT8 · 60fps</span><span class="tag tag-g">Grounding DINO Edge · INT8</span><span class="tag tag-g">Weighted NMS fusion</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="p-num">4</div>
+      <div class="p-line"></div>
+      <div class="p-body">
+        <div class="p-title">Ground station — segmentation and measurement</div>
+        <div class="p-detail">Detection JSON + compressed frames stream to the ground station laptop via WebSocket over 4G/WiFi. For each high-confidence detection, SAM 3 runs on the laptop's GPU (even an RTX 3060 is sufficient). SAM 3 uses the Grounding DINO bounding box as a prompt and returns a pixel-precise mask of the defect. Using the drone's altitude, GPS, and camera focal length (pre-calibrated), the system converts pixel dimensions to real-world measurements: <em>"Longitudinal crack, length 47cm, width 3.2cm"</em>. This data directly maps to IRC 22–2015 severity classification: L1 (minor), L2 (moderate), L3 (critical).</div>
+        <div class="step-tags" style="margin-top: 8px;">
+          <span class="tag tag-gold">SAM 3 (PyTorch)</span><span class="tag tag-gold">Pixel→cm conversion</span><span class="tag tag-gold">IRC 22-2015 severity mapping</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="p-num">5</div>
+      <div class="p-line"></div>
+      <div class="p-body">
+        <div class="p-title">LLM analysis — structured maintenance report</div>
+        <div class="p-detail">Every 30 seconds, batched high-confidence detections with annotated images are sent to GPT-4o vision (online) or Gemma-3 12B via Ollama (offline — critical for remote sites in India with poor connectivity). The LLM is given a structured system prompt that matches the PWD inspection report format. Output: severity level, recommended action, urgency timeline, and a plain-language description. The system also generates an optional Hindi summary. All entries populate a live scrolling report panel on the dashboard and feed into the PDF export.</div>
+        <div class="step-tags" style="margin-top: 8px;">
+          <span class="tag tag-p">GPT-4o (online)</span><span class="tag tag-p">Gemma-3 12B via Ollama (offline)</span><span class="tag tag-p">LangChain JSON schema</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="p-num">6</div>
+      <div></div>
+      <div class="p-body" style="padding-bottom: 0;">
+        <div class="p-title">Report generation — PWD-ready PDF in seconds</div>
+        <div class="p-detail">On mission completion, WeasyPrint generates a PDF structured identically to state PWD bridge inspection formats: cover page (structure name, inspection date, GPS bounds, engineer name), executive summary with overall structural health score (0–100), defect inventory table sorted by severity, GPS map with colour-coded pins, annotated photographs of each defect, and a prioritized action list with estimated repair timelines and budget ranges in INR. This document is immediately submittable to the state PWD — no post-processing needed.</div>
+        <div class="step-tags" style="margin-top: 8px;">
+          <span class="tag tag-g">WeasyPrint</span><span class="tag tag-g">PostGIS</span><span class="tag tag-g">Folium / Mapbox</span><span class="tag tag-g">PWD report format</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 3: USP -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">03</span>
+      <h2>Unique Selling Points</h2>
+      <div class="sec-line"></div>
+    </div>
+
+    <div class="g2">
+      <div class="card">
+        <div class="usp-num">01</div>
+        <div class="usp-title">Zero-shot detection — no training data ever</div>
+        <div class="usp-body">Every competing drone inspection product (Skydio, Percepto, Botlink) requires custom ML models trained on thousands of labeled images per defect category. This takes weeks and thousands of dollars per defect type. ZeroDefect uses Grounding DINO — a foundation model — that understands open-vocabulary text. An engineer types the defect, the system finds it. Immediately. For any defect. Forever. <strong>This is architecturally impossible with conventional YOLO-based systems.</strong></div>
+      </div>
+      <div class="card">
+        <div class="usp-num">02</div>
+        <div class="usp-title">Works offline — built for India's terrain</div>
+        <div class="usp-body">Most infrastructure in India that needs inspection is in remote locations — NH bridges in the Northeast, dam faces in hill states, power pylons in tribal belts. ZeroDefect runs fully offline: Jetson Orin Nano handles edge inference, Gemma-3 runs locally via Ollama, the dashboard runs on a ₹60K laptop, results save to local PostGIS. <strong>No internet required during the mission.</strong> 4G is optional for live dashboard streaming in urban sites.</div>
+      </div>
+      <div class="card">
+        <div class="usp-num">03</div>
+        <div class="usp-title">Quantified defects, not just photos</div>
+        <div class="usp-body">Traditional drone inspection gives you a gallery of images. ZeroDefect gives you <em>measurements</em>. SAM 3 pixel masks + GPS altitude = exact crack length in cm, spalling area in cm², water seepage spread in m². These numbers directly map to IRC 22-2015 severity classifications (L1/L2/L3) which determine repair budget allocations in state PWD. <strong>The output is a submission-ready PWD report, not a photo album.</strong></div>
+      </div>
+      <div class="card">
+        <div class="usp-num">04</div>
+        <div class="usp-title">Temporal tracking — catch deterioration before failure</div>
+        <div class="usp-body">DINOv2 embeddings from every inspection are stored in PostGIS. When the same structure is re-inspected 3 months later, the system automatically computes a structural change delta — showing exactly which sections deteriorated, by how much, and at what rate. <strong>This turns reactive inspection into predictive maintenance</strong> — India's infrastructure management goes from "inspect after a collapse scare" to "replace before it fails."</div>
+      </div>
+      <div class="card">
+        <div class="usp-num">05</div>
+        <div class="usp-title">Safer than any current alternative</div>
+        <div class="usp-body">Rope-access inspection workers in India earn ₹800–1200/day with no fall insurance. Several die each year on inspection jobs. ZeroDefect replaces human access to dangerous locations entirely. The drone goes where humans cannot — beneath bridge decks, across dam faces, inside cooling tower voids. <strong>Zero human access to hazardous locations during the inspection.</strong></div>
+      </div>
+      <div class="card">
+        <div class="usp-num">06</div>
+        <div class="usp-title">10× cheaper than current methods</div>
+        <div class="usp-body">A standard PWD structural audit by a consulting firm costs ₹5–15 lakh for a medium bridge, takes 2–4 days, and produces a handwritten report. ZeroDefect's SaaS model prices at ₹80K–1.5L per inspection, takes 90 minutes, and delivers a GPS-tagged digital PDF. <strong>The cost reduction makes quarterly inspection financially viable for the first time.</strong></div>
+      </div>
+    </div>
+
+    <!-- VS TABLE -->
+    <h4 style="font-family:'Playfair Display',serif; font-size:18px; color:var(--text-bright); margin: 28px 0 16px;">ZeroDefect vs. existing approaches</h4>
+    <table class="cmp">
+      <thead>
+        <tr>
+          <th>Criterion</th>
+          <th>Manual PWD Inspection</th>
+          <th>Generic Camera Drone</th>
+          <th>ZeroDefect</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Detects new defect types on demand</td>
+          <td><span class="no">✗</span> Depends on inspector skill</td>
+          <td><span class="no">✗</span> Just records video</td>
+          <td><span class="yes">✓</span> Type in English/Hindi, found instantly</td>
+        </tr>
+        <tr>
+          <td>Quantified measurements (cm)</td>
+          <td><span class="no">✗</span> Subjective estimates</td>
+          <td><span class="no">✗</span> Not possible</td>
+          <td><span class="yes">✓</span> SAM 3 mask + altitude = exact cm²</td>
+        </tr>
+        <tr>
+          <td>Works fully offline</td>
+          <td><span class="yes">✓</span> (paper notes)</td>
+          <td><span class="yes">✓</span> (just stores video)</td>
+          <td><span class="yes">✓</span> Full AI pipeline offline via Ollama</td>
+        </tr>
+        <tr>
+          <td>GPS-tagged defect locations</td>
+          <td><span class="no">✗</span></td>
+          <td><span class="no">✗</span></td>
+          <td><span class="yes">✓</span> Every detection pinned to GPS</td>
+        </tr>
+        <tr>
+          <td>Auto-generated PWD-format report</td>
+          <td><span class="no">✗</span> Manual writing, days</td>
+          <td><span class="no">✗</span></td>
+          <td><span class="yes">✓</span> PDF ready on landing</td>
+        </tr>
+        <tr>
+          <td>Human risk</td>
+          <td><span class="no">✗</span> High (rope access)</td>
+          <td><span class="yes">~</span> Low (but human pilots still needed)</td>
+          <td><span class="yes">✓</span> Zero human in hazardous zone</td>
+        </tr>
+        <tr>
+          <td>Cost per inspection</td>
+          <td>₹5–15 lakh</td>
+          <td>₹2–5 lakh (+ manual review)</td>
+          <td>₹80K–1.5 lakh (all-in)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 4: ARCHITECTURE -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">04</span>
+      <h2>System Architecture & Tech Stack</h2>
+      <div class="sec-line"></div>
+    </div>
+
+    <div class="arch">
+      <div class="arch-lbl">Layer 1 — Aerial Platform (in the air)</div>
+      <div class="arch-row">
+        <div class="arch-box ab-s">F450 FRAME<br>Quadcopter</div>
+        <div class="arch-arr">+</div>
+        <div class="arch-box ab-s">PIXHAWK 6C<br>ArduCopter FC</div>
+        <div class="arch-arr">+</div>
+        <div class="arch-box ab-s">IMX477 4K<br>MIPI CSI-2</div>
+        <div class="arch-arr">+</div>
+        <div class="arch-box ab-s">HERE3+ RTK GPS<br>cm precision</div>
+        <div class="arch-arr">+</div>
+        <div class="arch-box ab-s">4S 5000mAh<br>25 min flight</div>
+      </div>
+      <div class="arch-sep"></div>
+      <div class="arch-lbl">Layer 2 — Edge Compute (on-drone · Jetson Orin Nano Super · 67 TOPS)</div>
+      <div class="arch-row">
+        <div class="arch-box">GStreamer<br>Frame Capture</div>
+        <div class="arch-arr">→</div>
+        <div class="arch-box ab-b">YOLO11n<br>TensorRT INT8<br>60+ FPS</div>
+        <div class="arch-arr">‖</div>
+        <div class="arch-box ab-b">Grounding DINO<br>Edge Quantized<br>Text-prompted</div>
+        <div class="arch-arr">→</div>
+        <div class="arch-box">Weighted NMS<br>Fusion + GPS tag<br>WebSocket push</div>
+      </div>
+      <div class="arch-sep"></div>
+      <div class="arch-lbl">Layer 3 — Ground Station Backend (FastAPI · laptop GPU · offline-capable)</div>
+      <div class="arch-row">
+        <div class="arch-box ab-gold">SAM 3<br>Pixel segmentation<br>→ cm² measurement</div>
+        <div class="arch-arr">→</div>
+        <div class="arch-box ab-gold">DINOv2<br>Anomaly scoring<br>Temporal delta</div>
+        <div class="arch-arr">→</div>
+        <div class="arch-box ab-gold">Gemma-3 / GPT-4o<br>LLM Analysis<br>PWD report JSON</div>
+        <div class="arch-arr">→</div>
+        <div class="arch-box ab-gold">PostGIS<br>Spatial index<br>DBSCAN dedup</div>
+      </div>
+      <div class="arch-sep"></div>
+      <div class="arch-lbl">Layer 4 — Dashboard & Output (Streamlit · Folium · WeasyPrint)</div>
+      <div class="arch-row">
+        <div class="arch-box ab-g">Text Query<br>Hindi / English<br>→ sent to drone</div>
+        <div class="arch-arr">+</div>
+        <div class="arch-box ab-g">Live Feed<br>YOLO+GDINO<br>overlay boxes</div>
+        <div class="arch-arr">+</div>
+        <div class="arch-box ab-g">GPS Defect Map<br>Colour-coded<br>severity pins</div>
+        <div class="arch-arr">+</div>
+        <div class="arch-box ab-g">LLM Report<br>Real-time panel<br>+ PDF export</div>
+      </div>
+    </div>
+
+    <div class="g2" style="margin-top: 16px;">
+      <div class="card card-blue">
+        <h3>On-Drone Software (Jetson)</h3>
+        <table class="spec">
+          <tr><td>OS</td><td>JetPack 6 · Ubuntu 22.04 LTS</td></tr>
+          <tr><td>Camera I/O</td><td>GStreamer nvarguscamerasrc → OpenCV</td></tr>
+          <tr><td>Fast detection</td><td>Ultralytics YOLO11n · TensorRT INT8 · 60+ FPS</td></tr>
+          <tr><td>Zero-shot detect</td><td>Grounding DINO Edge · ONNX INT8</td></tr>
+          <tr><td>Drone comms</td><td>MAVSDK-Python · MAVLink 2.0 · async</td></tr>
+          <tr><td>Data push</td><td>websockets (asyncio) · msgpack · JPEG compression</td></tr>
+          <tr><td>Stabilization</td><td>OpenCV ECC homography · optical flow jitter correction</td></tr>
+        </table>
+      </div>
+      <div class="card card-green">
+        <h3>Ground Station Software</h3>
+        <table class="spec">
+          <tr><td>API server</td><td>FastAPI + Uvicorn (async)</td></tr>
+          <tr><td>Segmentation</td><td>SAM 3 Small · PyTorch · CUDA</td></tr>
+          <tr><td>Anomaly</td><td>DINOv2-B/14 · timm · cosine similarity</td></tr>
+          <tr><td>LLM online</td><td>GPT-4o vision · LangChain · Pydantic</td></tr>
+          <tr><td>LLM offline</td><td>Gemma-3 12B · Ollama · localhost:11434</td></tr>
+          <tr><td>Database</td><td>PostgreSQL 16 + PostGIS · SQLAlchemy</td></tr>
+          <tr><td>Dashboard</td><td>Streamlit · Folium · Plotly · WeasyPrint PDF</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <h4 style="font-family:'Playfair Display',serif; font-size:18px; color:var(--text-bright); margin: 24px 0 12px;">Core inference snippet (on-drone edge)</h4>
+    <div class="code">
+<span class="c-cm"># edge_inference.py — runs on Jetson Orin Nano Super</span>
+<span class="c-kw">from</span> ultralytics <span class="c-kw">import</span> YOLO
+<span class="c-kw">from</span> groundingdino.util.inference <span class="c-kw">import</span> load_model, predict
+<span class="c-kw">import</span> asyncio, websockets, cv2, json, mavsdk
+
+<span class="c-vr">yolo</span>  = YOLO(<span class="c-st">"zerodefect_yolo11n.engine"</span>)  <span class="c-cm"># TensorRT INT8</span>
+<span class="c-vr">gdino</span> = <span class="c-fn">load_model</span>(<span class="c-st">"gdino_edge_int8.pth"</span>)      <span class="c-cm"># Grounding DINO quantized</span>
+<span class="c-vr">cap</span>   = cv2.<span class="c-fn">VideoCapture</span>(<span class="c-st">"nvarguscamerasrc ! ... appsink"</span>)
+
+<span class="c-kw">async def</span> <span class="c-fn">inference_loop</span>(ws_uri, text_query):
+    <span class="c-kw">async with</span> websockets.<span class="c-fn">connect</span>(ws_uri) <span class="c-kw">as</span> ws:
+        <span class="c-kw">while True</span>:
+            ret, frame = cap.<span class="c-fn">read</span>()
+            gps = <span class="c-kw">await</span> drone.<span class="c-fn">telemetry</span>.<span class="c-fn">position</span>()
+
+            <span class="c-cm"># Thread A: YOLO fast detector (60 FPS)</span>
+            <span class="c-vr">yolo_results</span> = yolo.<span class="c-fn">predict</span>(frame, conf=<span class="c-st">0.4</span>, verbose=<span class="c-kw">False</span>)
+
+            <span class="c-cm"># Thread B: Grounding DINO zero-shot (text-driven)</span>
+            boxes, logits, phrases = <span class="c-fn">predict</span>(
+                model=gdino, image=frame,
+                caption=text_query,       <span class="c-cm"># e.g. "cracked concrete . spalling . rust"</span>
+                box_threshold=<span class="c-st">0.35</span>, text_threshold=<span class="c-st">0.25</span>
+            )
+
+            <span class="c-vr">payload</span> = {
+                <span class="c-st">"yolo"</span>: <span class="c-fn">yolo_to_dict</span>(yolo_results),
+                <span class="c-st">"gdino"</span>: <span class="c-fn">gdino_to_dict</span>(boxes, phrases, logits),
+                <span class="c-st">"gps"</span>: {<span class="c-st">"lat"</span>: gps.latitude_deg, <span class="c-st">"lon"</span>: gps.longitude_deg,
+                        <span class="c-st">"alt"</span>: gps.relative_altitude_m},
+                <span class="c-st">"frame_jpeg"</span>: <span class="c-fn">encode_jpeg</span>(frame, quality=<span class="c-st">75</span>)
+            }
+            <span class="c-kw">await</span> ws.<span class="c-fn">send</span>(json.<span class="c-fn">dumps</span>(payload))
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 5: BUSINESS MODEL -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">05</span>
+      <h2>Business Model for India</h2>
+      <div class="sec-line"></div>
+    </div>
+
+    <p>India's infrastructure inspection market is <strong>almost entirely undigitized</strong> — which means ZeroDefect is not competing against advanced technology. It's competing against clipboards and rope. The addressable market is enormous and the switching barrier is low because clients are not locked into any existing digital platform.</p>
+
+    <div class="g3" style="margin-top: 20px;">
+      <div class="biz-tier featured">
+        <h3>Tier 1 — Government / PWD</h3>
+        <h4>Inspection-as-a-Service</h4>
+        <div class="biz-price">₹1–2L</div>
+        <div class="biz-period">per structure inspection</div>
+        <ul class="biz-features">
+          <li>Full drone inspection mission (90 min)</li>
+          <li>GPS-tagged defect map</li>
+          <li>PWD IRC 22-2015 format PDF report</li>
+          <li>Hindi + English summary</li>
+          <li>Severity-ranked action list</li>
+          <li>Digital submission package for MORTH</li>
+        </ul>
+        <div style="margin-top: 12px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-dim);">TARGET: NHAI, State PWD, Smart Cities Mission</div>
+      </div>
+      <div class="biz-tier">
+        <h3>Tier 2 — Industrial / Private</h3>
+        <h4>Annual Subscription</h4>
+        <div class="biz-price">₹8–25L</div>
+        <div class="biz-period">per year (unlimited inspections)</div>
+        <ul class="biz-features">
+          <li>Dedicated drone deployment on-site</li>
+          <li>Quarterly inspection schedule</li>
+          <li>Temporal deterioration tracking</li>
+          <li>Integration with CMMS (SAP PM)</li>
+          <li>White-label reporting for clients</li>
+          <li>Priority support + model updates</li>
+        </ul>
+        <div style="margin-top: 12px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-dim);">TARGET: NTPC, ONGC, L&amp;T ECC, Adani Ports, ISRO facilities</div>
+      </div>
+      <div class="biz-tier">
+        <h3>Tier 3 — SaaS Platform</h3>
+        <h4>Software License</h4>
+        <div class="biz-price">₹3–8L</div>
+        <div class="biz-period">per year per organization</div>
+        <ul class="biz-features">
+          <li>ZeroDefect software stack only</li>
+          <li>Client operates their own drone</li>
+          <li>Cloud dashboard + report generator</li>
+          <li>API access for CMMS integration</li>
+          <li>Custom LLM prompts per client</li>
+          <li>Multi-site historical database</li>
+        </ul>
+        <div style="margin-top: 12px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-dim);">TARGET: Large consultancies (AECOM, STUP), Municipal corporations</div>
+      </div>
+    </div>
+
+    <div class="g2" style="margin-top: 20px;">
+      <div class="card card-gold">
+        <h3>Revenue projection (Year 1 — conservative)</h3>
+        <table class="spec">
+          <tr><td>Govt inspections</td><td>25 inspections × ₹1.2L avg = <strong>₹30L</strong></td></tr>
+          <tr><td>Industrial subscriptions</td><td>3 clients × ₹10L avg = <strong>₹30L</strong></td></tr>
+          <tr><td>SaaS licenses</td><td>2 clients × ₹5L = <strong>₹10L</strong></td></tr>
+          <tr><td>Year 1 Total</td><td><strong style="color: var(--gold);">₹70L ARR</strong></td></tr>
+          <tr><td>COGS per inspection</td><td>~₹25–35K (flight ops + compute)</td></tr>
+          <tr><td>Gross margin</td><td>~72% on inspection service</td></tr>
+        </table>
+      </div>
+      <div class="card card-green">
+        <h3>Why government procurement is achievable</h3>
+        <p style="font-size: 13px;">The Ministry of Road Transport and Highways (MORTH) in 2023 made it mandatory for bridges rated below 2 on the BHI scale to be inspected within 6 months. NHAI has a ₹2,500 crore annual maintenance budget. States like Maharashtra, Tamil Nadu, and Karnataka run independent bridge inspection programs. <strong>ZeroDefect can be positioned as the digital inspection tool for the Smart Cities Mission and PM Gati Shakti infrastructure programme.</strong> DPIIT's Startup India scheme provides government procurement access to registered startups — this is the go-to-market wedge.</p>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 6: 3-DAY HACKATHON PLAN -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">06</span>
+      <h2>3-Day Hackathon Execution Plan</h2>
+      <div class="sec-line"></div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-label">Strategy</div>
+      <div class="callout-text">
+        <strong>Build in layers, not in sequence.</strong> The demo-winning core is: drone feed → Grounding DINO detection → boxes appear on dashboard map. Everything else (SAM 3, LLM reports, DINOv2, PDF export) is additive. Finish the core in Day 1. Polish and stack layers in Days 2–3. If hardware runs into issues, pre-captured footage on a laptop can carry the entire demo — judges care about the AI, not the drone flying in front of them.
+      </div>
+    </div>
+
+    <div class="day-block">
+      <div class="day-header d1">
+        <div class="day-num">Day 1</div>
+        <div>
+          <div class="day-title">Foundation — Get the core loop working</div>
+          <div class="day-focus">Target: Drone feed → GDINO detection → map pin appearing live</div>
+        </div>
+      </div>
+      <div class="day-body">
+        <div>
+          <div class="lane-label lane-hw">Hardware Team (3 people)</div>
+          <ul class="task-list">
+            <li class="task-crit"><strong>HW1 + HW2:</strong> Flash Jetson with JetPack 6. Install Ultralytics, OpenCV, MAVSDK. Verify GStreamer camera pipeline from IMX477.</li>
+            <li class="task-crit"><strong>HW3:</strong> Assemble and test fly drone (F450 + Pixhawk 6C). Verify ArduCopter stable hover, MAVLink telemetry output.</li>
+            <li><strong>HW1:</strong> Export YOLO11n to TensorRT INT8. Verify 60+ FPS on Jetson with sample footage.</li>
+            <li><strong>HW2:</strong> Set up Grounding DINO Edge ONNX on Jetson. Run inference on single image with text prompt. Verify boxes output.</li>
+            <li><strong>HW3:</strong> Plan and upload autonomous grid waypoint mission in QGroundControl for a nearby open area (parking lot, field).</li>
+            <li><strong>All HW:</strong> Capture 15 min of pre-flight footage of building/campus infrastructure for demo backup dataset.</li>
+          </ul>
+        </div>
+        <div>
+          <div class="lane-label lane-sw">Software Team (2 people)</div>
+          <ul class="task-list">
+            <li class="task-crit"><strong>SW1:</strong> Set up FastAPI + WebSocket server. Define detection JSON schema. Test with dummy payload from localhost.</li>
+            <li class="task-crit"><strong>SW2:</strong> Set up Streamlit dashboard skeleton: video feed panel (MJPEG) + Folium map panel + text query input box.</li>
+            <li><strong>SW1:</strong> Wire WebSocket client in dashboard to receive JSON detections and drop pins on Folium map in real-time.</li>
+            <li><strong>SW2:</strong> Set up PostGIS schema (detections table: class, confidence, lat, lon, timestamp, image_path).</li>
+            <li><strong>SW1:</strong> Install and test Ollama + Gemma-3 12B on ground station laptop. Verify local LLM responds to structured prompts.</li>
+            <li><strong>END OF DAY 1 CHECKPOINT:</strong> Pre-captured footage → GDINO detections → boxes visible on dashboard map. This is the demo MVP.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="day-block">
+      <div class="day-header d2">
+        <div class="day-num">Day 2</div>
+        <div>
+          <div class="day-title">Integration — Connect all layers, fly the drone</div>
+          <div class="day-focus">Target: Live drone feed + SAM 3 masks + LLM report panel working</div>
+        </div>
+      </div>
+      <div class="day-body">
+        <div>
+          <div class="lane-label lane-hw">Hardware Team (3 people)</div>
+          <ul class="task-list">
+            <li class="task-crit"><strong>HW1 + HW2:</strong> Integrate Jetson with drone via UART MAVLink. Verify GPS lat/lon/alt appears in Python console during flight.</li>
+            <li class="task-crit"><strong>HW3:</strong> Execute first full autonomous mission. Debug any GPS/compass issues. Confirm stable hover and waypoint following.</li>
+            <li><strong>HW1:</strong> Run full inference pipeline on Jetson during live flight. Confirm detection JSON + JPEG frame streaming to WebSocket.</li>
+            <li><strong>HW2:</strong> Tune Grounding DINO confidence thresholds for outdoor lighting conditions. Reduce false positives on concrete texture.</li>
+            <li><strong>HW3:</strong> Test 2-axis gimbal for stabilization. Mount all hardware on drone with weight balance check. Confirm 20+ min flight time.</li>
+          </ul>
+        </div>
+        <div>
+          <div class="lane-label lane-sw">Software Team (2 people)</div>
+          <ul class="task-list">
+            <li class="task-crit"><strong>SW1:</strong> Implement SAM 3 worker: receives ROI crop → returns binary mask → compute area in cm² using altitude.</li>
+            <li class="task-crit"><strong>SW2:</strong> Wire LLM pipeline: high-confidence detections → LangChain prompt → Gemma-3 → severity JSON → dashboard panel.</li>
+            <li><strong>SW1:</strong> Add DBSCAN deduplication: merge detections within 2m GPS radius across overlapping flight passes.</li>
+            <li><strong>SW2:</strong> Add SAM 3 mask overlay to live video feed: green fill on detected defect areas with crack length label.</li>
+            <li><strong>SW1:</strong> Implement DINOv2 baseline comparison: embed first flight's frames, flag frames with cosine similarity below 0.82.</li>
+            <li><strong>SW2:</strong> Build WeasyPrint PDF template: defect inventory table + map screenshot + photos + action list in PWD format.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="day-block">
+      <div class="day-header d3">
+        <div class="day-num">Day 3</div>
+        <div>
+          <div class="day-title">Polish + Demo — Make it unignorable</div>
+          <div class="day-focus">Target: Clean demo run · PDF export · pitch narrative locked</div>
+        </div>
+      </div>
+      <div class="day-body">
+        <div>
+          <div class="lane-label lane-hw">Hardware Team (3 people)</div>
+          <ul class="task-list">
+            <li><strong>HW1:</strong> Run full end-to-end test: drone flies → detections stream → map populates → LLM report generates → PDF exports. Fix any integration bugs.</li>
+            <li><strong>HW2:</strong> Prepare demo flight: identify specific defects (crack in wall, rust on railing, paint peeling) in/near the venue. Mark GPS waypoints.</li>
+            <li><strong>HW3:</strong> Prepare backup: load pre-captured footage into "offline demo mode" so SW team can run the full pipeline without drone if judges ask for an indoor demo.</li>
+            <li><strong>All HW:</strong> Rehearse the demo flow with SW team. Time it. The demo must be under 5 minutes. Practice explaining what each model is doing.</li>
+          </ul>
+        </div>
+        <div>
+          <div class="lane-label lane-sw">Software Team (2 people)</div>
+          <ul class="task-list">
+            <li><strong>SW1:</strong> Dashboard polish: colour-code severity pins (green L1, yellow L2, red L3). Add defect count summary bar at top. Smooth WebSocket reconnection.</li>
+            <li><strong>SW2:</strong> Generate a sample PDF from yesterday's drone flight. Verify it matches PWD report format. Add cover page with structure name and inspection date.</li>
+            <li><strong>SW1:</strong> Add "offline mode" toggle: dashboard loads from cached detection JSON instead of live WebSocket — allows demo without drone.</li>
+            <li><strong>SW2:</strong> Prepare the judge walkthrough slide inside the dashboard itself: a tour mode that explains each panel when a button is clicked.</li>
+            <li><strong>Both:</strong> Write the 3-line pitch for each judge question: "What does it do?" / "Why does it matter in India?" / "How is this different?" Have it memorised.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- SECTION 7: TEAM STRUCTURE -->
+  <div class="sec">
+    <div class="sec-header">
+      <span class="sec-num">07</span>
+      <h2>Team Structure & Ownership</h2>
+      <div class="sec-line"></div>
+    </div>
+
+    <div class="person-grid">
+      <div class="person-card">
+        <div class="person-avatar av-hw">H1</div>
+        <div class="person-role">Hardware · Lead</div>
+        <div class="person-name">Drone + Edge AI</div>
+        <div class="person-tasks">Drone assembly, Pixhawk config, Jetson setup, YOLO11n TensorRT, GDINO Edge, GStreamer pipeline, MAVLink integration</div>
+      </div>
+      <div class="person-card">
+        <div class="person-avatar av-hw">H2</div>
+        <div class="person-role">Hardware · ML Ops</div>
+        <div class="person-name">Models + Inference</div>
+        <div class="person-tasks">GDINO quantization tuning, confidence thresholds, inference fusion (weighted NMS), detection quality on outdoor lighting</div>
+      </div>
+      <div class="person-card">
+        <div class="person-avatar av-hw">H3</div>
+        <div class="person-role">Hardware · Pilot</div>
+        <div class="person-name">Flight Ops + Demo</div>
+        <div class="person-tasks">Mission planning in QGroundControl, autonomous waypoint missions, gimbal calibration, payload weight balance, backup footage capture</div>
+      </div>
+      <div class="person-card">
+        <div class="person-avatar av-sw">S1</div>
+        <div class="person-role">Software · Backend</div>
+        <div class="person-name">Backend + AI Pipeline</div>
+        <div class="person-tasks">FastAPI WebSocket server, SAM 3 worker, DINOv2 baseline, PostGIS schema, DBSCAN dedup, GPS projection math, WeasyPrint PDF</div>
+      </div>
+      <div class="person-card">
+        <div class="person-avatar av-sw">S2</div>
+        <div class="person-role">Software · Frontend</div>
+        <div class="person-name">Dashboard + LLM</div>
+        <div class="person-tasks">Streamlit dashboard, Folium map, MJPEG video feed, LangChain + Gemma-3 pipeline, LLM report panel, offline demo mode, PDF trigger</div>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top: 20px; border-left-color: var(--saffron);">
+      <div class="callout-label" style="color: var(--saffron);">Critical path rule</div>
+      <div class="callout-text">
+        H1 and S1 are your critical path. <strong>H1 must have the Jetson streaming detection JSON over WebSocket by end of Day 1.</strong> <strong>S1 must have FastAPI receiving that JSON and dropping a pin on the Folium map by end of Day 1.</strong> Everything else — SAM 3, LLM, DINOv2, PDF — is a bonus layer. Demo the core first, stack on top.
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <span>ZeroDefect · Equinox '26 · Open Innovation + Security</span>
+    <span>Built for India's Infrastructure · Drone + CV + LLM</span>
+  </div>
+
+</div>
+</body>
+</html>

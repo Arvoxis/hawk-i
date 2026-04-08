@@ -10,9 +10,11 @@ Usage:
     results = segmenter.segment_detections(frame, detections, altitude_m=12.0)
 """
 
+import os
 import numpy as np
 import torch
 import logging
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Camera constants (typical drone cam — adjust for your actual hardware)
 # ---------------------------------------------------------------------------
+# Absolute path to local SAM 2.1 checkpoint (project_root/models/)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CHECKPOINT = str(_PROJECT_ROOT / "models" / "sam2.1_hiera_small.pt")
+
 DEFAULT_FOCAL_LENGTH_MM = 3.67      # e.g. Raspberry Pi HQ cam / typical drone cam
 DEFAULT_SENSOR_WIDTH_MM = 6.287     # IMX477 sensor width
 DEFAULT_IMAGE_WIDTH_PX  = 1280      # capture resolution width
@@ -30,8 +36,8 @@ class SAM2Segmenter:
 
     def __init__(
         self,
-        checkpoint_path: str = "models/sam2.1_hiera_small.pt",
-        model_cfg: str = "sam2_hiera_s.yaml",
+        checkpoint_path: str = DEFAULT_CHECKPOINT,
+        model_cfg: str = "configs/sam2.1/sam2.1_hiera_s.yaml",
         device: Optional[str] = None,
         focal_length_mm: float = DEFAULT_FOCAL_LENGTH_MM,
         sensor_width_mm: float = DEFAULT_SENSOR_WIDTH_MM,
@@ -67,7 +73,7 @@ class SAM2Segmenter:
                 # Fallback: load from HuggingFace
                 from sam2.sam2_image_predictor import SAM2ImagePredictor
                 self._predictor = SAM2ImagePredictor.from_pretrained(
-                    "facebook/sam2-hiera-small"
+                    "facebook/sam2.1-hiera-small"
                 )
             except Exception as e2:
                 logger.error(f"HuggingFace load also failed: {e2}")
@@ -85,6 +91,12 @@ class SAM2Segmenter:
     # ------------------------------------------------------------------
     # Core: segment a single bounding box in the frame
     # ------------------------------------------------------------------
+    def _autocast_ctx(self):
+        """Return the correct autocast context for the current device."""
+        device_type = self.device.split(":")[0]  # "cuda" or "cpu" (strips ":0" etc.)
+        dtype = torch.bfloat16 if device_type == "cuda" else torch.float32
+        return torch.autocast(device_type, dtype=dtype)
+
     def segment_box(self, frame_rgb: np.ndarray, box_xyxy: list[float]) -> dict:
         """
         Segment a single bounding box region.
@@ -101,7 +113,7 @@ class SAM2Segmenter:
         """
         self._load_model()
 
-        with torch.inference_mode(), torch.autocast(self.device, dtype=torch.bfloat16):
+        with torch.inference_mode(), self._autocast_ctx():
             self._predictor.set_image(frame_rgb)
 
             box_np = np.array(box_xyxy, dtype=np.float32)
@@ -192,7 +204,7 @@ class SAM2Segmenter:
         h, w = frame_rgb.shape[:2]
 
         # Set image once, predict for each box
-        with torch.inference_mode(), torch.autocast(self.device, dtype=torch.bfloat16):
+        with torch.inference_mode(), self._autocast_ctx():
             self._predictor.set_image(frame_rgb)
 
             for det in detections:
