@@ -1,5 +1,5 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,6 +8,8 @@ from datetime import datetime
 import numpy as np
 import cv2
 from ultralytics import YOLO
+
+from video_stream import set_frame, get_frame, make_placeholder_jpeg
 
 from database import (
     init_db, save_detection,
@@ -255,9 +257,21 @@ dashboard_clients = []
 
 # ── Helpers ───────────────────────────────────────────────────
 
+def _strip_data_uri(frame_b64: str) -> str:
+    """Remove 'data:image/...;base64,' prefix if present."""
+    if "," in frame_b64:
+        return frame_b64.split(",", 1)[1]
+    return frame_b64
+
+
+def b64_to_jpeg_bytes(frame_b64: str) -> bytes:
+    """Decode a base64 string (with optional data-URI prefix) → raw JPEG bytes."""
+    return base64.b64decode(_strip_data_uri(frame_b64))
+
+
 def decode_jpeg(frame_b64: str) -> np.ndarray:
-    """Decode a base64 JPEG string → RGB numpy array."""
-    frame_bytes = base64.b64decode(frame_b64)
+    """Decode a base64 JPEG string (with optional data-URI prefix) → RGB numpy array."""
+    frame_bytes = b64_to_jpeg_bytes(frame_b64)
     frame_np    = np.frombuffer(frame_bytes, dtype=np.uint8)
     frame_bgr   = cv2.imdecode(frame_np, cv2.IMREAD_COLOR)
     return cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
@@ -378,6 +392,9 @@ async def drone_receiver(websocket: WebSocket):
             decoded_frame: np.ndarray | None = None
 
             if frame_b64:
+                # ── Store raw JPEG bytes for /video_feed MJPEG stream ──
+                set_frame(b64_to_jpeg_bytes(frame_b64))
+
                 loop          = asyncio.get_running_loop()
                 decoded_frame = await loop.run_in_executor(None, decode_jpeg, frame_b64)
                 gs_detections = await loop.run_in_executor(None, run_gs_yolo, decoded_frame)
@@ -517,6 +534,37 @@ def root():
 def health():
     """Lightweight health check — returns 200 if the server is up."""
     return {"ok": True, "timestamp": time.time()}
+
+
+@app.get("/video_feed")
+async def video_feed():
+    """
+    MJPEG stream of the latest drone frame.
+
+    Each part is:
+        --frame\\r\\n
+        Content-Type: image/jpeg\\r\\n\\r\\n
+        <raw JPEG bytes>\\r\\n
+
+    If no frame has been received yet (or the last one is stale),
+    a placeholder 'Waiting for feed' image is served instead so the
+    stream never stalls.
+    """
+    async def _generate():
+        while True:
+            jpeg = get_frame() or make_placeholder_jpeg()
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n"
+                + jpeg
+                + b"\r\n"
+            )
+            await asyncio.sleep(1 / 30)   # cap at ~30 fps
+
+    return StreamingResponse(
+        _generate(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
 
 
 @app.get("/api/session")

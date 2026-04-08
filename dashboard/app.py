@@ -8,6 +8,7 @@ import time
 import requests
 import folium
 import streamlit as st
+import streamlit.components.v1 as components
 from datetime import datetime
 from streamlit_folium import st_folium
 from streamlit_autorefresh import st_autorefresh
@@ -292,24 +293,21 @@ if live_feed:
     feed_fresh = last_t and (time.monotonic() - last_t) < 5
 
     with vid_col:
-        if frame_b64 and feed_fresh:
-            img_bytes = base64.b64decode(frame_b64)
-            lat  = gps.get("lat", 0)
-            lon  = gps.get("lon", 0)
-            alt  = gps.get("alt_m", 0)
-            caption = (
+        # MJPEG stream served directly from the backend — always live,
+        # shows a 'Waiting for feed' placeholder when the drone is offline.
+        components.html(
+            '<img src="http://localhost:8000/video_feed" '
+            'style="width:100%;border-radius:8px;display:block" '
+            'alt="Live drone feed">',
+            height=400,
+        )
+        if feed_fresh and gps:
+            lat = gps.get("lat", 0)
+            lon = gps.get("lon", 0)
+            alt = gps.get("alt_m", 0)
+            st.caption(
                 f"GPS: {lat:.5f}, {lon:.5f}  |  Alt: {alt:.1f} m  "
                 f"|  {len(ws_dets)} detection(s)"
-            )
-            st.image(img_bytes, caption=caption, use_container_width=True)
-        else:
-            st.markdown(
-                '<div class="empty-state" style="padding:3rem 2rem">'
-                '<span style="font-size:1.6rem">📡</span><br><br>'
-                'Waiting for drone feed…<br>'
-                '<span style="font-size:0.78rem">Connect the Jetson client to begin streaming</span>'
-                '</div>',
-                unsafe_allow_html=True,
             )
 
     with gps_col:
