@@ -8,41 +8,47 @@
 
 <br/><br/>
 
-# 🦅 Hawk-I
+# Hawk-I
 ### AI-Powered Drone Infrastructure Inspection System
 
 *Real-time defect detection · SAM2 segmentation · LLM-generated reports · Live GPS dashboard*
 
 <br/>
 
-> Built for the **Equinox '26 Hackathon** — ZeroDefect Track  
-> Smart Infrastructure · Edge AI · Full-Stack ML Pipeline
+> Built for the **Equinox '26 Hackathon** — Smart Infrastructure Track  
+> Edge AI · Full-Stack ML Pipeline
 
 </div>
 
 ---
 
-## 🧠 What Is Hawk-I?
+## What Is Hawk-I?
 
-Hawk-I is an end-to-end drone-based infrastructure inspection system that detects, segments, and reports structural defects in real time. A drone equipped with a **Jetson Orin Nano** streams live video to a backend that runs a custom-trained **YOLOv11n** model for defect detection, **SAM 2** for precise segmentation masks, and an **LLM (Gemma-3 4B via Ollama)** to auto-generate structured inspection reports — all visualized on a live GPS-mapped Streamlit dashboard.
+Infrastructure inspection is slow, expensive, and often dangerous — sending people up bridges, towers, and buildings to look for cracks with their eyes. Hawk-I is an attempt to fix that.
 
-No manual inspection. No post-processing delays. Just fly, detect, and report.
+It's a full drone-based inspection system that runs a custom-trained **YOLOv11n** model on a **Jetson Orin Nano** at the edge, detecting structural defects like cracks, spalling, and corrosion in real time as the drone flies. Detected frames are streamed via WebSocket to a **FastAPI** backend where **SAM 2** generates pixel-level segmentation masks on each defect, and **Gemma-3 4B (via Ollama)** synthesizes everything into a structured inspection report. All of this gets logged to a **PostGIS-enabled PostgreSQL** database and visualized on a live GPS-mapped **Streamlit** dashboard — defect locations, confidence scores, segmentation overlays, and exportable PDF reports.
 
----
-
-## ⚡ Key Features
-
-- 🔍 **Real-Time Defect Detection** — Custom YOLOv11n model trained on 1,680 concrete defect images (mAP 0.45), detecting cracks, spalling, corrosion, and more
-- 🎯 **SAM 2 Segmentation** — Precise pixel-level masks overlaid on detected defect regions
-- 🤖 **LLM Inspection Reports** — Gemma-3 4B via Ollama auto-generates structured reports per inspection session
-- 🗺️ **Live GPS Dashboard** — Real-time map showing drone position and annotated defect locations
-- 📡 **Edge-to-Cloud Streaming** — Jetson Orin Nano handles on-device inference, streams frames via WebSocket to a FastAPI backend
-- 📄 **PDF Report Export** — One-click downloadable inspection reports per session
-- 🐳 **Dockerized PostGIS DB** — Geospatial PostgreSQL for storing session data, defect coordinates, and inspection history
+The whole pipeline runs in real time. No post-flight processing, no manual review step.
 
 ---
 
-## 🏗️ System Architecture
+## Key Features
+
+**Edge Inference on Jetson Orin Nano** — The drone runs YOLOv11n locally, so detection happens on-device before anything is sent over the network. This keeps latency low and makes the system viable even with limited bandwidth.
+
+**Custom-Trained Defect Detection Model** — YOLOv11n trained from scratch on 1,680 annotated concrete defect images across four classes: cracks, spalling, corrosion, and delamination. Achieves mAP@0.5 of 0.45 on the validation set. Weights are included in the repo (`hawki_yolo11n.pt`).
+
+**SAM 2 Segmentation** — Every YOLO bounding box gets passed to SAM 2 for precise pixel-level segmentation. This gives far more useful output than a bounding box alone — you can actually see the shape and extent of each defect.
+
+**LLM-Generated Inspection Reports** — The backend aggregates detections per session and prompts Gemma-3 4B to generate a structured inspection report: defect types, severity assessment, location context, and recommendations. Reports are exportable as PDF.
+
+**Live GPS Dashboard** — The Streamlit dashboard shows the drone's real-time position on a map with defect markers, a live detection feed, and per-session history. Built on HTTP polling (`/api/live/frame`) rather than WebSocket to keep the Streamlit state model stable.
+
+**Session-Isolated Database** — Each inspection flight creates its own session-specific tables in PostGIS, keeping data clean and queryable by location using geospatial queries.
+
+---
+
+## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -73,28 +79,27 @@ No manual inspection. No post-processing delays. Just fly, detect, and report.
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Edge Inference | NVIDIA Jetson Orin Nano, YOLOv11n |
-| Object Detection | Custom YOLOv11n (trained on concrete defect dataset) |
+| Edge Device | NVIDIA Jetson Orin Nano |
+| Object Detection | Custom YOLOv11n · Ultralytics |
 | Segmentation | SAM 2 (Segment Anything Model 2) |
 | LLM Reports | Ollama · Gemma-3 4B |
 | Backend | FastAPI · WebSockets · HTTP Polling |
 | Database | PostgreSQL + PostGIS · Docker |
 | Dashboard | Streamlit |
-| Geospatial | PostGIS · GPS coordinate mapping |
 | Model Training | Ultralytics · Google Colab |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 hawk-i/
-├── backend/                  # FastAPI backend, WebSocket endpoints
-├── dashboard/                # Streamlit dashboard app
+├── backend/                  # FastAPI app, WebSocket endpoints, inference pipeline
+├── dashboard/                # Streamlit dashboard
 ├── data/                     # Dataset & annotations
 ├── scripts/                  # Utility scripts
 ├── tests/                    # Test files & mock drone senders
@@ -111,49 +116,31 @@ hawk-i/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
 - Python 3.10+
 - Docker & Docker Compose
-- Ollama installed with Gemma-3 4B pulled (`ollama pull gemma3:4b`)
+- Ollama with Gemma-3 4B pulled (`ollama pull gemma3:4b`)
 - NVIDIA GPU (for SAM 2 and YOLO inference)
 
-### 1. Clone & Install
+### Setup
 
 ```bash
 git clone https://github.com/Arvoxis/hawk-i.git
 cd hawk-i
 pip install -r requirements.txt
-```
 
-### 2. Configure Environment
-
-```bash
 cp .env.example .env
-# Edit .env with your DB credentials and config
+# Fill in your DB credentials and config
+
+docker-compose up -d            # Start PostGIS database
+python run.py                   # Start FastAPI backend
+streamlit run dashboard/app.py  # Launch dashboard
 ```
 
-### 3. Start the Database
-
-```bash
-docker-compose up -d
-```
-
-### 4. Run the Backend
-
-```bash
-python run.py
-```
-
-### 5. Launch the Dashboard
-
-```bash
-streamlit run dashboard/app.py
-```
-
-### 6. Simulate Drone Feed (Testing)
+To simulate a drone feed without hardware:
 
 ```bash
 python test_fake_drone.py
@@ -161,22 +148,22 @@ python test_fake_drone.py
 
 ---
 
-## 🧪 Model Details
+## Model Details
 
 | Attribute | Value |
 |---|---|
 | Architecture | YOLOv11n (nano) |
-| Dataset | 1,680 concrete defect images |
-| Classes | Cracks, Spalling, Corrosion, Delamination |
+| Dataset | 1,680 annotated concrete defect images |
+| Classes | Cracks · Spalling · Corrosion · Delamination |
 | mAP@0.5 | 0.45 |
-| Training | Google Colab · Ultralytics |
+| Training Platform | Google Colab · Ultralytics |
 | Weights | `hawki_yolo11n.pt` |
 
-Training notebook: [`hawki_YOLOv11n_Training.ipynb`](./hawki_YOLOv11n_Training.ipynb)
+Full training process in [`hawki_YOLOv11n_Training.ipynb`](./hawki_YOLOv11n_Training.ipynb)
 
 ---
 
-## 📄 Documentation
+## Documentation
 
 - [Product Requirements Document](./Hawk-I_PRD_v1.0.docx)
 - [Hackathon Presentation](./HAWKI_Presentation.pptx)
@@ -184,18 +171,8 @@ Training notebook: [`hawki_YOLOv11n_Training.ipynb`](./hawki_YOLOv11n_Training.i
 
 ---
 
-## 🙋 Author
-
-**Rakshit Sinha**  
-B.Tech Computer Science · VIT Vellore ('28)  
-Vice Chairperson, AI & ML Club (TAM-VIT)
-
-[![GitHub](https://img.shields.io/badge/GitHub-Arvoxis-181717?style=flat-square&logo=github)](https://github.com/Arvoxis)
-
----
-
 <div align="center">
 
-*Built in 24 hours at Equinox '26 · ZeroDefect Track*
+*Built at Equinox '26 · Smart Infrastructure Track*
 
 </div>
