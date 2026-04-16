@@ -153,8 +153,8 @@ examples:
     )
     parser.add_argument(
         "--server",
-        default="localhost",
-        help="Backend server IP or hostname (default: localhost)",
+        default="172.18.239.242",
+        help="Backend server IP or hostname (default: 172.18.239.242)",
     )
     args = parser.parse_args()
 

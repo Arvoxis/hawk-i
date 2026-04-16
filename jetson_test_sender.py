@@ -198,8 +198,8 @@ def main():
         description="Hawk-I Jetson→Laptop connection stress test (no camera needed)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--server", default="localhost",
-                   help="Laptop IP on LAN (e.g. 192.168.1.100). Default: localhost")
+    p.add_argument("--server", default="172.18.239.242",
+                   help="Laptop IP on LAN (e.g. 192.168.1.100). Default: 172.18.239.242")
     p.add_argument("--port",   default=8000, type=int,
                    help="Backend port (default: 8000)")
     p.add_argument("--fps",    default=3, type=int,

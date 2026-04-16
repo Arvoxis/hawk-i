@@ -147,8 +147,8 @@ def main():
     parser = argparse.ArgumentParser(description="Hawk-I Jetson streaming client")
     parser.add_argument(
         "--server",
-        default="localhost",
-        help="Backend host IP or hostname (default: localhost)",
+        default="172.18.239.242",
+        help="Backend host IP or hostname (default: 172.18.239.242)",
     )
     parser.add_argument(
         "--camera",

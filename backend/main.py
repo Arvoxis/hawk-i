@@ -1,5 +1,12 @@
+import asyncio
+import sys
+# Windows: switch to ProactorEventLoop — no 512 fd select() limit
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,17 +16,26 @@ import numpy as np
 import cv2
 from ultralytics import YOLO
 
-from video_stream import set_frame, get_frame, make_placeholder_jpeg
+from video_stream import (
+    set_latest_frame, get_latest_frame, make_placeholder_jpeg,
+    clear_frame_cache,
+)
 
 from database import (
-    init_db, save_detection,
+    init_db,
     get_latest_detections, get_filtered_detections,
+    get_recent_llm_reports,
     update_detection_sam, update_detection_report, get_detection_report,
+    get_detection_embedding, get_severity_counts,
     CURRENT_TABLE, _SESSION_ID,
 )
 from pdf_generator import generate_inspection_pdf
 from sam2_segmenter import SAM2Segmenter
 from llm_reporter import LLMReporter
+from dinov2_embedder import get_embedder
+import sam3_worker
+import llm_worker
+import processing_worker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +55,12 @@ _LOG_FILE  = os.getenv("GCS_LOG_FILE",  "detections.jsonl")
 _display_queue: queue.Queue = queue.Queue(maxsize=2)
 _running = threading.Event()
 _running.set()
+
+# ── Drone reverse channel (query forwarding to Jetson) ────────────────────────
+current_query: str  = ""    # raw text of the last query sent via POST /query
+current_classes: list[str] = []   # parsed class list forwarded to the Jetson
+jetson_ws = None            # active Jetson WebSocket; None when disconnected
+_jetson_send_queue: asyncio.Queue = asyncio.Queue()
 
 # Live connection stats — updated by drone WebSocket handler
 gcs_stats = {
@@ -126,7 +148,7 @@ def _draw_stats_overlay(frame: np.ndarray, detections: list, gps: dict) -> np.nd
     y += 22
     lat = gps.get("lat"); lon = gps.get("lon"); alt = gps.get("alt_m")
     if lat is not None and lon is not None:
-        gps_txt = f"GPS: {lat:.6f}, {lon:.6f}  Alt: {alt:.1f}m"
+        gps_txt = f"GPS: {lat:.6f}, {lon:.6f}  Alt: {(alt or 0.0):.1f}m"
         gps_col = (0, 255, 200)
     else:
         gps_txt = "GPS: No fix"
@@ -199,12 +221,21 @@ def _gcs_stats_thread():
             f"{'CONNECTED' if gcs_stats['connected'] else 'WAITING'}"
         )
 
+# ── GPU tuning (applied once at module load) ──────────────────
+import torch as _torch
+if _torch.cuda.is_available():
+    _torch.backends.cudnn.benchmark       = True
+    _torch.backends.cuda.matmul.allow_tf32 = True
+    logger.info("CUDA available — cudnn.benchmark + TF32 enabled")
+
 # ── Ground-station YOLO model (loaded at startup) ─────────────
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _YOLO_WEIGHTS = _PROJECT_ROOT / "models" / "hawki_yolo11n.pt"
+_YOLO_DEVICE  = 0 if _torch.cuda.is_available() else "cpu"   # 0 = cuda:0
 try:
     gs_yolo_model = YOLO(str(_YOLO_WEIGHTS))
-    logger.info(f"Loaded ground-station YOLO weights from {_YOLO_WEIGHTS}")
+    gs_yolo_model.to(_YOLO_DEVICE)
+    logger.info(f"Loaded GS YOLO weights from {_YOLO_WEIGHTS} → device={_YOLO_DEVICE}")
 except Exception as _yolo_err:
     gs_yolo_model = None
     logger.warning(f"Could not load GS YOLO weights ({_yolo_err}). GS inference disabled.")
@@ -218,6 +249,10 @@ reporter = LLMReporter()
 # ── Startup: connect to DB + launch GCS background threads ───
 @asynccontextmanager
 async def lifespan(app):
+    # Purge stale frames from the previous run so the feed isn't frozen
+    clear_frame_cache()
+    logger.info("Cleared stale frames from data/frames/")
+
     await init_db()
     for tgt, name in [(_gcs_display_thread, "GCS-Display"), (_gcs_stats_thread, "GCS-Stats")]:
         t = threading.Thread(target=tgt, name=name, daemon=True)
@@ -225,6 +260,23 @@ async def lifespan(app):
         logger.info(f"Started background thread: {name}")
 
     logger.info(f"Session started: {_SESSION_ID}  →  table: {CURRENT_TABLE}")
+
+    # ── SAM2 health check at startup ──────────────────────────────────────
+    loop = asyncio.get_running_loop()
+    sam2_ok = await loop.run_in_executor(None, segmenter.sam2_health_check)
+    if not sam2_ok:
+        logger.error("SAM2 health check FAILED — segmentation will not work correctly")
+    else:
+        logger.info("SAM2 health check passed ✓")
+
+    # ── Wire LLM batch worker (30 s sweep for dashboard cards) ──
+    llm_worker.set_dashboard_clients(connected_dashboards)
+    asyncio.create_task(llm_worker.run_llm_worker())
+    logger.info("LLM worker background task started")
+
+    # ── Processing worker: SAM2 + DINOv2 + LLM per detection ───
+    asyncio.create_task(processing_worker.run_processing_worker())
+    logger.info("Processing worker background task started")
 
     yield
 
@@ -240,7 +292,7 @@ async def lifespan(app):
         if rows:
             os.makedirs("reports", exist_ok=True)
             report_path = os.path.join("reports", f"hawki_{_SESSION_ID}.pdf")
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             pdf_bytes = await loop.run_in_executor(None, generate_inspection_pdf, rows)
             with open(report_path, "wb") as f:
                 f.write(pdf_bytes)
@@ -250,9 +302,31 @@ async def lifespan(app):
     except Exception as e:
         logger.error(f"Auto-report generation failed: {e}")
 
+    # ── Close all open dashboard WebSocket connections ────────────
+    for client in list(connected_dashboards):
+        try:
+            await client.close(code=1001)
+        except Exception:
+            pass
+    connected_dashboards.clear()
+
+    # ── Close asyncpg connection pool ─────────────────────────────
+    from database import pool as _db_pool
+    if _db_pool:
+        await _db_pool.close()
+        logger.info("Database pool closed")
+
+# Set of currently connected dashboard WebSocket clients.
+# A set is used (not a list) so discard() is safe and there are no
+# index-based eviction bugs.  Declared before the lifespan function
+# runs so set_dashboard_clients() gets the live object at startup.
+connected_dashboards: set = set()
+
 app = FastAPI(lifespan=lifespan)
 
-dashboard_clients = []
+# Serve SAM-annotated frames so the dashboard can show them by URL
+os.makedirs(os.path.join("data", "frames"), exist_ok=True)
+app.mount("/frames", StaticFiles(directory=os.path.join("data", "frames")), name="frames")
 
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -285,7 +359,7 @@ def run_gs_yolo(frame_rgb: np.ndarray) -> list[dict]:
     """
     if gs_yolo_model is None:
         return []
-    results = gs_yolo_model(frame_rgb, verbose=False)[0]
+    results = gs_yolo_model(frame_rgb, verbose=False, device=_YOLO_DEVICE)[0]
     detections = []
     for box in results.boxes:
         x1, y1, x2, y2 = box.xyxy[0].tolist()
@@ -301,84 +375,77 @@ def run_gs_yolo(frame_rgb: np.ndarray) -> list[dict]:
     return detections
 
 
-async def _run_sam2_and_update(frame_b64: str, saved: list[tuple[int, dict]], altitude_m: float):
-    """Post-processing: decode frame → SAM2 → Gemma-3 report → update DB."""
-    try:
-        loop  = asyncio.get_running_loop()
-        frame = await loop.run_in_executor(None, decode_jpeg, frame_b64)
-
-        detections = [det for _, det in saved]
-        results    = await loop.run_in_executor(
-            None, segmenter.segment_detections, frame, detections, altitude_m
-        )
-
-        for (det_id, det), result in zip(saved, results):
-            # ── 1. Save SAM2 area data ─────────────────────────────
-            await update_detection_sam(
-                det_id,
-                area_px   = result["area_px"],
-                area_cm2  = result["area_cm2"],
-                sam_score = result["score"],
-            )
-
-            # ── 2. Build detection dict for the LLM ───────────────
-            detection_data = {
-                "detection_class": det.get("phrase") or det.get("class", "unknown"),
-                "confidence":      det.get("conf", 0.0),
-                "severity":        "L3" if det.get("conf", 0) > 0.85 else "L2" if det.get("conf", 0) > 0.65 else "L1",
-                "area_cm2":        result["area_cm2"],
-                "lat":             det.get("_lat", 0.0),
-                "lon":             det.get("_lon", 0.0),
-                "alt_m":           altitude_m,
-                "sam_score":       result["score"],
-            }
-
-            # ── 3. Generate LLM report, save to DB ────────────────
-            report = await reporter.generate_report(detection_data)
-            await update_detection_report(det_id, report)
-
-    except Exception as e:
-        logger.error(f"SAM2/LLM post-processing failed: {e}")
-
 
 # ── Drone WebSocket ───────────────────────────────────────────
 @app.websocket("/ws/drone")
 async def drone_receiver(websocket: WebSocket):
-    """Receive detection payloads from the Jetson drone/client.
+    """Receive detection payloads from the Jetson and forward backend commands back.
 
-    Payload schema (all fields optional except gps / timestamp):
-    {
-        "timestamp":        float,
-        "gps":              {"lat": float, "lon": float, "alt_m": float},
-        "yolo_detections":  [{"class": str, "conf": float, "box": [x1,y1,x2,y2]}, ...],
-        "gdino_detections": [{"phrase": str, "conf": float, "box": [...]}, ...],
-        "frame_jpeg":       "<base64-encoded JPEG string>"   # optional
-    }
+    Two concurrent tasks run on the same WebSocket:
+      _receiver — reads detection frames from the Jetson and stores them.
+      _sender   — drains _jetson_send_queue and writes commands to the Jetson.
+
+    This lets POST /query push a query / ping down to the Jetson without
+    blocking the receive loop.
     """
+    global jetson_ws
     await websocket.accept()
     client_addr = websocket.client.host if websocket.client else "unknown"
-    logger.info(f"✓ Drone/Jetson connected from {client_addr}")
+    logger.info("✓ Drone/Jetson connected from %s", client_addr)
 
-    # ── Update GCS live stats ─────────────────────────────────
     gcs_stats["connected"]     = True
     gcs_stats["connect_time"]  = time.time()
     gcs_stats["drone_address"] = client_addr
+    jetson_ws = websocket
 
-    try:
+    # Drain any stale messages left in the queue from a previous connection
+    while not _jetson_send_queue.empty():
+        try:
+            _jetson_send_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+
+    async def _receiver():
+        loop = asyncio.get_event_loop()
         while True:
             raw  = await websocket.receive_text()
             data = json.loads(raw)
-            logger.info(f"RAW FRAME — keys={list(data.keys())} | gps={data.get('gps')} | yolo={len(data.get('yolo_detections', []))} | gdino={len(data.get('gdino_detections', []))} | has_frame={'yes' if data.get('frame_jpeg') else 'no'}")
 
-            # ── Parse GPS (graceful defaults) ─────────────────
+            # Skip any control messages the Jetson might send back
+            if data.get("type"):
+                continue
+
+            # ── Fast path — store raw JPEG in memory immediately ───────────
+            # No disk access; /video_feed reads from this directly.
+            frame_b64 = data.get("frame_jpeg") or ""
+            frame_np  = None
+            if frame_b64:
+                raw_b64 = frame_b64
+                if raw_b64.startswith("data:"):
+                    raw_b64 = raw_b64.split(",", 1)[1]
+                frame_bytes = base64.b64decode(raw_b64)
+                set_latest_frame(frame_bytes)
+
+                # Decode to numpy for SAM2 — only when there are detections
+                # to process (avoids imdecode overhead on empty frames).
+                yolo_dets  = data.get("yolo_detections",  [])
+                gdino_dets = data.get("gdino_detections", [])
+                if yolo_dets or gdino_dets:
+                    buf = np.frombuffer(frame_bytes, dtype=np.uint8)
+                    bgr = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+                    if bgr is not None:
+                        frame_np = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            else:
+                yolo_dets  = data.get("yolo_detections",  [])
+                gdino_dets = data.get("gdino_detections", [])
+
+            # ── Parse GPS ─────────────────────────────────────
             gps = data.get("gps") or {}
-            lat = gps.get("lat", 0.0)
-            lon = gps.get("lon", 0.0)
-            alt = gps.get("alt_m", 0.0)
+            lat = float(gps.get("lat")   or 0.0)
+            lon = float(gps.get("lon")   or 0.0)
+            alt = float(gps.get("alt_m") or 0.0)
 
-            # ── Update GCS stats ──────────────────────────────
-            yolo_dets  = data.get("yolo_detections",  [])
-            gdino_dets = data.get("gdino_detections", [])
+            # ── Fast in-memory stats — NO blocking I/O here ────
             gcs_stats["frames_received"]  += 1
             gcs_stats["yolo_detections"]  += len(yolo_dets)
             gcs_stats["gdino_detections"] += len(gdino_dets)
@@ -386,141 +453,110 @@ async def drone_receiver(websocket: WebSocket):
             gcs_stats["last_gps"]          = gps
             _update_fps()
 
-            # ── 0. Ground-station YOLO inference (backup / verification) ──
-            frame_b64     = data.get("frame_jpeg")
-            gs_detections: list[dict] = []
-            decoded_frame: np.ndarray | None = None
+            # Fire-and-forget JSONL write — push to thread pool
+            loop.run_in_executor(
+                None, _log_detections_jsonl,
+                {**data, "all_detections": yolo_dets + gdino_dets},
+            )
 
-            if frame_b64:
-                # ── Store raw JPEG bytes for /video_feed MJPEG stream ──
-                set_frame(b64_to_jpeg_bytes(frame_b64))
+            # ── One queue item per frame (not per detection) ───────────────
+            # Filter low-confidence detections before queuing.
+            filtered_yolo  = [d for d in yolo_dets  if d.get("conf", 0) >= 0.45]
+            filtered_gdino = [d for d in gdino_dets if d.get("conf", 0) >= 0.45]
 
-                loop          = asyncio.get_running_loop()
-                decoded_frame = await loop.run_in_executor(None, decode_jpeg, frame_b64)
-                gs_detections = await loop.run_in_executor(None, run_gs_yolo, decoded_frame)
-                if gs_detections:
-                    gcs_stats["gs_detections"] += len(gs_detections)
-                    logger.info(f"GS-YOLO found {len(gs_detections)} detection(s)")
+            if filtered_yolo or filtered_gdino:
+                processing_worker.raw_queue.put_nowait({
+                    "timestamp":        time.time(),
+                    "gps":              {"lat": lat, "lon": lon, "alt_m": alt},
+                    "yolo_detections":  filtered_yolo,
+                    "gdino_detections": filtered_gdino,
+                    "frame_np":         frame_np,
+                })
 
-                # ── Push decoded frame to GCS display queue ────
-                all_frame_dets = yolo_dets + gdino_dets + gs_detections
-                display_data = {
-                    "frame":      decoded_frame,
-                    "detections": all_frame_dets,
-                    "gps":        gps,
-                    "timestamp":  data.get("timestamp", time.time()),
-                }
-                if _display_queue.full():
-                    try:
-                        _display_queue.get_nowait()
-                    except queue.Empty:
-                        pass
-                _display_queue.put_nowait(display_data)
+            logger.info(
+                "Frame received: %d yolo + %d gdino detection(s) queued | "
+                "GPS=(%.4f,%.4f) | queue_depth=%d",
+                len(filtered_yolo), len(filtered_gdino), lat, lon,
+                processing_worker.raw_queue.qsize(),
+            )
 
-                # ── Forward frame + detections to dashboard WebSocket clients ──
-                if dashboard_clients:
-                    frame_msg = {
-                        "frame_jpeg":  frame_b64,
-                        "gps":         gps,
-                        "detections":  all_frame_dets,
-                        "timestamp":   data.get("timestamp", time.time()),
-                    }
-                    dead = []
-                    for client in dashboard_clients:
-                        try:
-                            await client.send_json(frame_msg)
-                        except Exception:
-                            dead.append(client)
-                    for c in dead:
-                        dashboard_clients.remove(c)
+            # Yield to the event loop so dashboard pings are not starved
+            await asyncio.sleep(0)
 
-                # ── Auto-save high-confidence frames ──────────
-                if _AUTO_SAVE:
-                    all_for_save = yolo_dets + gdino_dets + gs_detections
-                    high = [d for d in all_for_save if d.get("conf", 0) >= _AUTO_SAVE_CONF]
-                    if high:
-                        loop.run_in_executor(
-                            None, _save_frame, decoded_frame, all_for_save, gps, "auto"
-                        )
+    async def _sender():
+        """Forward backend-originated messages (queries, pings) to the Jetson."""
+        while True:
+            msg = await _jetson_send_queue.get()
+            await websocket.send_text(json.dumps(msg))
 
-            # ── Log detections to JSONL ────────────────────────
-            _log_detections_jsonl({**data, "all_detections": yolo_dets + gdino_dets + gs_detections})
+    recv_task   = asyncio.create_task(_receiver())
+    sender_task = asyncio.create_task(_sender())
 
-            all_detections = gdino_dets + yolo_dets + gs_detections
-
-            # ── 1. Save every detection; collect (id, det) pairs ──────
-            saved: list[tuple[int, dict]] = []
-
-            for det in all_detections:
-                if det.get("conf", 0) < 0.45:
-                    continue
-
-                class_name = det.get("phrase") or det.get("class", "unknown")
-                confidence = float(det.get("conf", 0))
-                severity   = "L3" if confidence > 0.85 else "L2" if confidence > 0.65 else "L1"
-
-                det_id = await save_detection(
-                    class_name=class_name,
-                    confidence=confidence,
-                    severity=severity,
-                    area_cm2=0.0,
-                    lat=lat, lon=lon,
-                    altitude_m=alt,
-                )
-                det["_lat"] = lat
-                det["_lon"] = lon
-                saved.append((det_id, det))
-
-                # Push initial pin to dashboard immediately
-                pin = {
-                    "lat":      lat,
-                    "lon":      lon,
-                    "class":    class_name,
-                    "conf":     confidence,
-                    "severity": severity,
-                    "area_cm2": 0.0,
-                }
-                for client in dashboard_clients:
-                    try:
-                        await client.send_json(pin)
-                    except Exception:
-                        pass
-
-            # ── 2. SAM2 post-processing (non-blocking) ────────────────
-            if frame_b64 and saved:
-                asyncio.create_task(
-                    _run_sam2_and_update(frame_b64, saved, alt)
-                )
-
+    try:
+        done, pending = await asyncio.wait(
+            [recv_task, sender_task],
+            return_when=asyncio.FIRST_EXCEPTION,
+        )
+        for t in pending:
+            t.cancel()
+        # Re-raise the first exception so the caller can log it
+        for t in done:
+            if not t.cancelled():
+                exc = t.exception()
+                if exc:
+                    raise exc
     except WebSocketDisconnect:
-        logger.info(f"✗ Drone disconnected from {client_addr}")
+        logger.info("✗ Drone disconnected from %s", client_addr)
     except json.JSONDecodeError as e:
-        logger.warning(f"Invalid JSON from drone: {e}")
+        logger.warning("Invalid JSON from drone: %s", e)
     except Exception as e:
-        logger.error(f"Drone WebSocket error: {e}")
+        logger.error("Drone WebSocket error: %s", e)
     finally:
+        jetson_ws = None
         gcs_stats["connected"]     = False
         gcs_stats["drone_address"] = None
         logger.info("Drone connection cleaned up")
 
 
 # ── Dashboard WebSocket ───────────────────────────────────────
+
 @app.websocket("/ws/dashboard")
 async def dashboard_ws(websocket: WebSocket):
-    await websocket.accept()
-    dashboard_clients.append(websocket)
-    logger.info(f"✓ Dashboard connected ({len(dashboard_clients)} total)")
+    """Minimal, crash-proof dashboard WebSocket handler.
+
+    Design:
+    - accept() is the very first call, outside any try/except, so FastAPI
+      never sees an "ASGI callable returned without sending handshake" error.
+    - connected_dashboards is a set; .add() / .discard() are both safe to
+      call even if the connection is already gone.
+    - The keep-alive loop uses asyncio.sleep(1) which never raises on its own.
+      WebSocketDisconnect is only raised by send/receive calls — the LLM worker
+      catches it when it tries to push a report and removes the dead client.
+    - Any unexpected exception is logged with a full traceback so it's visible
+      in the server log rather than silently closing the connection.
+    """
+    import traceback
+
+    client_ip = websocket.client.host if websocket.client else "unknown"
     try:
-        while True:
-            await asyncio.sleep(1)
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        logger.warning(f"Dashboard WebSocket error: {e}")
-    finally:
-        if websocket in dashboard_clients:
-            dashboard_clients.remove(websocket)
-        logger.info(f"Dashboard disconnected ({len(dashboard_clients)} remaining)")
+        await websocket.accept()
+        logger.info("Dashboard WS accepted from %s (%d total)",
+                    client_ip, len(connected_dashboards) + 1)
+
+        connected_dashboards.add(websocket)
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except WebSocketDisconnect:
+            pass
+        finally:
+            connected_dashboards.discard(websocket)
+            logger.debug("Dashboard client %s removed (%d remaining)",
+                         client_ip, len(connected_dashboards))
+
+    except Exception:
+        logger.error("Dashboard WS handler CRASHED for %s:\n%s",
+                     client_ip, traceback.format_exc())
 
 
 # ── REST endpoints ────────────────────────────────────────────
@@ -534,6 +570,18 @@ def root():
 def health():
     """Lightweight health check — returns 200 if the server is up."""
     return {"ok": True, "timestamp": time.time()}
+
+
+@app.get("/frame/latest")
+async def frame_latest():
+    """Single JPEG snapshot of the latest raw drone frame.
+
+    Served directly from the in-memory store — no disk access.
+    Falls back to a placeholder if no frame has been received yet.
+    """
+    jpeg = get_latest_frame() or make_placeholder_jpeg()
+    return Response(content=jpeg, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
 
 
 @app.get("/video_feed")
@@ -552,14 +600,15 @@ async def video_feed():
     """
     async def _generate():
         while True:
-            jpeg = get_frame() or make_placeholder_jpeg()
+            # Serve from in-memory store — zero disk access on the hot path.
+            jpeg = get_latest_frame() or make_placeholder_jpeg()
             yield (
                 b"--frame\r\n"
                 b"Content-Type: image/jpeg\r\n\r\n"
                 + jpeg
                 + b"\r\n"
             )
-            await asyncio.sleep(1 / 30)   # cap at ~30 fps
+            await asyncio.sleep(0.033)  # ~30 fps — pure memory read is fast
 
     return StreamingResponse(
         _generate(),
@@ -590,6 +639,16 @@ def gcs_status():
     })
 
 
+@app.get("/detections/llm_reports/latest")
+async def get_latest_llm_reports(seconds: int = 60, limit: int = 10):
+    """Return detections with llm_report populated in the last `seconds` seconds."""
+    rows = await get_recent_llm_reports(seconds=seconds, limit=limit)
+    for r in rows:
+        if r.get("detected_at"):
+            r["detected_at"] = str(r["detected_at"])
+    return JSONResponse(rows)
+
+
 @app.get("/detections/latest")
 async def get_latest(limit: int = 20):
     rows = await get_latest_detections(limit=limit)
@@ -615,11 +674,160 @@ async def get_detections(
     return JSONResponse(rows)
 
 
+def _parse_classes(raw: str) -> list[str]:
+    """Split a free-text query into a clean class list.
+
+    Splits on commas, 'and', '&', '+'.  Strips whitespace and drops empties.
+    'cracked concrete, rust stain and exposed rebar'
+        → ["cracked concrete", "rust stain", "exposed rebar"]
+    """
+    import re
+    parts = re.split(r",|\band\b|&|\+", raw, flags=re.IGNORECASE)
+    return [p.strip() for p in parts if p.strip()]
+
+
+# ── Query expansion map ───────────────────────────────────────────────────────
+# Maps user-friendly shorthand → YOLO-World sub-queries that the Jetson model
+# actually understands.  Mirrors multi_query_yoloworld.py QUERY_MAP on the
+# Jetson side; keep in sync when adding new defect classes.
+_QUERY_MAP: dict[str, list[str]] = {
+    "crack": [
+        "thin line in concrete",
+        "fracture in wall",
+        "hairline crack",
+        "vertical crack in wall",
+        "horizontal crack in concrete",
+    ],
+    "spalling": [
+        "broken concrete chunk",
+        "missing piece of wall",
+        "concrete falling off",
+        "deep chip in concrete",
+        "hollow area in wall",
+    ],
+    "exposed rebar": [
+        "bare metal rod",
+        "protruding steel bar",
+        "rebar sticking out of concrete",
+        "metal rod in broken concrete",
+        "corroded steel bar",
+    ],
+    "exposed_reinforcement": [
+        "bare metal rod",
+        "protruding steel bar",
+        "rebar sticking out of concrete",
+        "metal rod in broken concrete",
+        "corroded steel bar",
+    ],
+    "rust": [
+        "brown stain on concrete",
+        "orange streak on wall",
+        "rust mark on surface",
+        "iron stain on cement",
+        "reddish discoloration",
+    ],
+    "ruststain": [
+        "brown stain on concrete",
+        "orange streak on wall",
+        "rust mark on surface",
+        "iron stain on cement",
+        "reddish discoloration",
+    ],
+    "scaling": [
+        "peeling concrete surface",
+        "flaking wall layer",
+        "surface layer coming off",
+        "deteriorating concrete top",
+        "rough eroded surface",
+    ],
+    "efflorescence": [
+        "white powder on wall",
+        "white crust on concrete",
+        "salt deposit on surface",
+        "chalky white stain",
+        "mineral deposit on brick",
+    ],
+    "corrosion": [
+        "corroded metal surface",
+        "rust on steel beam",
+        "oxidised metal structure",
+        "orange rust on rebar",
+        "corroded iron surface",
+    ],
+    "delamination": [
+        "concrete layer separating",
+        "surface sheet peeling from slab",
+        "hollow sound area on wall",
+        "concrete layer debonding",
+        "loose surface layer",
+    ],
+}
+
+
+def _expand_query(classes: list[str]) -> list[str]:
+    """
+    Expand each canonical class name into its YOLO-World sub-queries.
+
+    E.g. ["crack"] → ["thin line in concrete", "fracture in wall", ...]
+         ["unknown_thing"] → ["unknown_thing"]   (no expansion, kept as-is)
+
+    Lookup is case-insensitive and normalises spaces/underscores.
+    Deduplicates while preserving insertion order.
+    """
+    expanded: list[str] = []
+    seen: set[str] = set()
+
+    for cls in classes:
+        key = cls.lower().replace(" ", "_").replace("-", "_")
+        # Also try without underscores for natural-language inputs
+        key_plain = cls.lower().strip()
+        sub = _QUERY_MAP.get(key) or _QUERY_MAP.get(key_plain)
+        if sub:
+            for q in sub:
+                if q not in seen:
+                    expanded.append(q)
+                    seen.add(q)
+        else:
+            if cls not in seen:
+                expanded.append(cls)
+                seen.add(cls)
+
+    return expanded
+
+
 @app.post("/query")
 async def send_query(payload: dict):
-    query_text = payload.get("query", "")
-    print(f"  → Query received: {query_text}")
-    return {"status": "query received", "query": query_text}
+    """Parse a free-text query, expand to YOLO-World sub-queries, and forward to Jetson.
+
+    Input  {"query": "crack"}
+    Output {"status": "ok", "classes": ["thin line in concrete", "fracture in wall", ...]}
+
+    The expanded class list is what actually reaches the Jetson's set_classes() call,
+    giving the model descriptive visual phrases instead of bare one-word labels.
+    """
+    global current_query, current_classes
+    query_text = payload.get("query", "").strip()
+    current_query = query_text
+
+    parsed  = _parse_classes(query_text)       # ["crack", "spalling"]
+    classes = _expand_query(parsed)            # ["thin line in concrete", ...]
+    current_classes = parsed                   # store canonical names for UI display
+
+    if jetson_ws is None:
+        return JSONResponse({"status": "no_drone_connected"})
+
+    await _jetson_send_queue.put({"type": "query", "query": query_text, "classes": classes})
+    logger.info(
+        "Query expand: %r → %d canonical → %d sub-queries: %s",
+        query_text, len(parsed), len(classes), classes,
+    )
+    return JSONResponse({"status": "ok", "classes": classes, "canonical": parsed})
+
+
+@app.get("/query/current")
+def get_current_query():
+    """Return the last class list sent to the drone and the original raw query."""
+    return JSONResponse({"classes": current_classes, "raw_query": current_query})
 
 
 @app.get("/api/report/pdf")
@@ -646,10 +854,21 @@ async def download_pdf_report(
         if r.get("detected_at"):
             r["detected_at"] = str(r["detected_at"])
 
-    loop     = asyncio.get_running_loop()
-    pdf_bytes = await loop.run_in_executor(None, generate_inspection_pdf, rows)
+    loop = asyncio.get_running_loop()
 
-    filename = "hawki_inspection_report.pdf"
+    # Pre-generate mission summary (async LLM call) before PDF thread
+    mission_summary = None
+    try:
+        mission_summary = await reporter.batch_report(rows)
+    except Exception as e:
+        logger.warning("batch_report failed: %s — PDF without mission summary", e)
+
+    pdf_bytes = await loop.run_in_executor(
+        None, generate_inspection_pdf, rows, mission_summary
+    )
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"hawki_report_{ts}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -704,3 +923,72 @@ async def segment_single(req: SegmentRequest):
     except Exception as e:
         logger.error(f"/api/segment failed: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/similar/{detection_id}")
+async def get_similar_detections(detection_id: int):
+    """
+    Return the top 3 most visually similar past detections to the given ID,
+    ranked by DINOv2 cosine similarity.
+
+    Response: [{id, lat, lon, class, area_cm2, detected_at, similarity}]
+    """
+    row = await get_detection_embedding(detection_id)
+    if row is None:
+        return JSONResponse({"error": "detection not found"}, status_code=404)
+
+    emb_bytes = row.get("embedding")
+    if not emb_bytes:
+        return JSONResponse(
+            {"error": "embedding not yet computed for this detection"},
+            status_code=202,
+        )
+
+    try:
+        embedding = np.frombuffer(bytes(emb_bytes), dtype=np.float32)
+        if embedding.shape != (768,):
+            return JSONResponse({"error": "invalid embedding shape"}, status_code=500)
+    except Exception as e:
+        return JSONResponse({"error": f"embedding decode failed: {e}"}, status_code=500)
+
+    embedder = get_embedder()
+    similar = await embedder.find_similar(
+        embedding, row["class_name"], top_k=3
+    )
+    # Exclude the detection itself
+    similar = [s for s in similar if s["id"] != detection_id]
+
+    return JSONResponse(similar)
+
+
+@app.get("/api/site_health")
+async def site_health():
+    """
+    Compute and return an overall site health score (0–100).
+
+    Score formula:
+        100 - (CRITICAL×25 + HIGH×10 + MEDIUM×3 + LOW×1)  capped at 0.
+
+    CRITICAL = L3 with confidence > 0.85
+    HIGH     = L3 with confidence ≤ 0.85
+    MEDIUM   = L2
+    LOW      = L1
+    """
+    counts = await get_severity_counts()
+    penalty = (
+        counts.get("critical", 0) * 25
+        + counts.get("high", 0)   * 10
+        + counts.get("medium", 0) * 3
+        + counts.get("low", 0)    * 1
+    )
+    score = max(0, 100 - penalty)
+    return JSONResponse({
+        "score":            score,
+        "total_detections": counts.get("total", 0),
+        "breakdown": {
+            "critical": counts.get("critical", 0),
+            "high":     counts.get("high", 0),
+            "medium":   counts.get("medium", 0),
+            "low":      counts.get("low", 0),
+        },
+    })

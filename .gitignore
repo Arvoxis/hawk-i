@@ -9,8 +9,9 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Environment variables
+# Environment variables — real IPs/passwords never committed
 .env
+# .env.example is intentionally committed (contains only placeholders)
 
 # Model weights (large binary files)
 models/*.pt

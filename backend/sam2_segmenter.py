@@ -17,18 +17,20 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+load_dotenv()
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Camera constants (typical drone cam — adjust for your actual hardware)
+# Camera intrinsics — configurable via .env for different drone hardware.
 # ---------------------------------------------------------------------------
-# Absolute path to local SAM 2.1 checkpoint (project_root/models/)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CHECKPOINT = str(_PROJECT_ROOT / "models" / "sam2.1_hiera_small.pt")
 
-DEFAULT_FOCAL_LENGTH_MM = 3.67      # e.g. Raspberry Pi HQ cam / typical drone cam
-DEFAULT_SENSOR_WIDTH_MM = 6.287     # IMX477 sensor width
-DEFAULT_IMAGE_WIDTH_PX  = 1280      # capture resolution width
+DEFAULT_FOCAL_LENGTH_MM = float(os.getenv("CAMERA_FOCAL_MM",        "3.67"))
+DEFAULT_SENSOR_WIDTH_MM = float(os.getenv("CAMERA_SENSOR_WIDTH_MM", "6.287"))
+DEFAULT_IMAGE_WIDTH_PX  = int(os.getenv("CAMERA_IMAGE_WIDTH_PX",    "1280"))
 
 
 class SAM2Segmenter:
@@ -58,6 +60,12 @@ class SAM2Segmenter:
             return
 
         logger.info("Loading SAM 2 model (first request)...")
+
+        # Enable cuDNN auto-tuner — finds the fastest conv algorithm for the
+        # fixed input size (image encoder) and caches it after the first run.
+        if self.device.startswith("cuda"):
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cuda.matmul.allow_tf32 = True   # faster matmuls on Ampere
 
         try:
             # Primary: load from local checkpoint
@@ -92,10 +100,17 @@ class SAM2Segmenter:
     # Core: segment a single bounding box in the frame
     # ------------------------------------------------------------------
     def _autocast_ctx(self):
-        """Return the correct autocast context for the current device."""
-        device_type = self.device.split(":")[0]  # "cuda" or "cpu" (strips ":0" etc.)
-        dtype = torch.bfloat16 if device_type == "cuda" else torch.float32
-        return torch.autocast(device_type, dtype=dtype)
+        """Return the correct autocast context for the current device.
+
+        torch.autocast on CPU only supports bfloat16; float32 raises
+        RuntimeError on recent PyTorch versions.  On CPU we use a no-op
+        context manager so SAM2 runs without autocast overhead.
+        """
+        import contextlib
+        device_type = self.device.split(":")[0]  # "cuda" or "cpu"
+        if device_type == "cuda":
+            return torch.autocast("cuda", dtype=torch.bfloat16)
+        return contextlib.nullcontext()
 
     def segment_box(self, frame_rgb: np.ndarray, box_xyxy: list[float]) -> dict:
         """
@@ -241,6 +256,33 @@ class SAM2Segmenter:
                     continue
 
         return results
+
+    # ------------------------------------------------------------------
+    # Health check — call at startup to fail fast if SAM2 is broken
+    # ------------------------------------------------------------------
+    def sam2_health_check(self) -> bool:
+        """
+        Load the model and run a dummy 224×224 inference to verify it works.
+
+        Returns True if healthy, False if any step fails.
+        Call once at backend startup; log result.
+        """
+        try:
+            self._load_model()
+            dummy = np.zeros((224, 224, 3), dtype=np.uint8)
+            with torch.inference_mode(), self._autocast_ctx():
+                self._predictor.set_image(dummy)
+                box = np.array([56.0, 56.0, 168.0, 168.0], dtype=np.float32)
+                masks, scores, _ = self._predictor.predict(
+                    box=box, multimask_output=False
+                )
+            logger.info(
+                "SAM2 health check PASSED — score=%.3f", float(scores[0])
+            )
+            return True
+        except Exception as exc:
+            logger.error("SAM2 health check FAILED: %s", exc)
+            return False
 
     # ------------------------------------------------------------------
     # Utility: draw mask overlay on frame for dashboard / annotated image
