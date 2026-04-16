@@ -246,8 +246,6 @@ python test_fake_drone.py
 ## Documentation
 
 - [Product Requirements Document](./Hawk-I_PRD_v1.0.docx)
-- [Multi-Query YOLO Setup](./MULTI_QUERY.md)
-- [Model Training Notebook](./hawki_YOLOv11n_Training.ipynb)
 
 ---
 
