@@ -166,7 +166,6 @@ Full training process in [`hawki_YOLOv11n_Training.ipynb`](./hawki_YOLOv11n_Trai
 ## Documentation
 
 - [Product Requirements Document](./Hawk-I_PRD_v1.0.docx)
-- [Hackathon Presentation](./HAWKI_Presentation.pptx)
 - [Multi-Query YOLO Setup](./MULTI_QUERY.md)
 
 ---
