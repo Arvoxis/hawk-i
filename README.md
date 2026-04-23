@@ -63,55 +63,50 @@ Everything runs **fully offline**. No internet required during field inspections
 
 ```mermaid
 flowchart TD
-    subgraph DRONE["🚁 Drone — Jetson Orin Nano 8GB"]
-        CAM["IMX477 Camera\nMIPI CSI-2"]
-        GS["GStreamer\nnvarguscamerasrc"]
+    subgraph DRONE["🚁  Drone — Jetson Orin Nano 8GB"]
+        direction TB
+        CAM["IMX477 · MIPI CSI-2"]
+        GS["GStreamer · nvarguscamerasrc"]
         FQ["OpenCV Frame Queue"]
-        T1["Thread 1\nYOLOv11n TensorRT INT8\n60+ FPS · all frames"]
-        T2["Thread 2\nGrounding DINO-T FP16\n8–12 FPS · every 5th frame"]
-        FUSE["IoU Fusion & Deduplication\nthreshold > 0.50"]
-        GPS["GPS Attach\nMAVLink · u-blox NEO-M8N · 10 Hz"]
-        WS_OUT["WebSocket Client\nJSON + base64 JPEG"]
+        T1["YOLOv11n TensorRT INT8\n60+ FPS · every frame"]
+        T2["Grounding DINO-T FP16\n8–12 FPS · every 5th frame"]
+        FUSE["IoU Fusion & Deduplication  ·  threshold 0.50"]
+        GPS["GPS Attach · MAVLink · u-blox NEO-M8N · 10 Hz"]
+        WS_OUT["WebSocket Client · JSON + base64 JPEG"]
 
         CAM --> GS --> FQ
-        FQ --> T1
-        FQ --> T2
-        T1 --> FUSE
-        T2 --> FUSE
-        FUSE --> GPS --> WS_OUT
+        FQ --> T1 & T2
+        T1 & T2 --> FUSE --> GPS --> WS_OUT
     end
 
-    subgraph GCS["🖥️ Ground Control Station — FastAPI Backend"]
-        WS_IN["WebSocket Server\n/ws/drone"]
-        SAM["SAM 3 Small\nSegmentation + Area (cm²)"]
-        DINO["DINOv2-B/14\nTemporal Anomaly Scoring\n768-dim cosine similarity"]
-        LLM["Gemma-3 12B · Ollama\nLangChain · IS 456 / IRC 22-2015\n30s batch · Pydantic schema"]
-        DB["PostgreSQL 16 + PostGIS 3.4\nDocker · GIST spatial index"]
-        PDF["WeasyPrint\nPDF Report Export"]
+    WS_OUT -- WebSocket --> WS_IN
 
-        WS_IN --> SAM
-        SAM --> DINO
-        SAM --> LLM
-        SAM --> DB
-        DINO --> DB
-        LLM --> DB
-        DB --> PDF
+    subgraph GCS["🖥️  Ground Control Station — FastAPI Backend"]
+        direction TB
+        WS_IN["WebSocket Server · /ws/drone"]
+        SAM["SAM 3 Small · Segmentation + Area cm²"]
+        subgraph PARALLEL["Parallel Processing"]
+            direction LR
+            DINO["DINOv2-B/14\nTemporal Anomaly\n768-dim cosine sim"]
+            LLM["Gemma-3 12B · Ollama\nLangChain · IS 456 / IRC 22-2015\n30s batch · Pydantic schema"]
+        end
+        DB["PostgreSQL 16 + PostGIS 3.4 · Docker · GIST spatial index"]
+        PDF["WeasyPrint · PDF Export"]
+
+        WS_IN --> SAM --> PARALLEL --> DB --> PDF
     end
 
-    subgraph DASH["📊 Dashboard — Streamlit + Folium"]
-        FEED["Live MJPEG Feed\n/video_feed"]
-        MAP["GPS Severity Map\ncolour-coded L1/L2/L3 pins"]
+    DB -- live data --> DASH
+
+    subgraph DASH["📊  Dashboard — Streamlit + Folium"]
+        direction LR
+        FEED["MJPEG Feed\n/video_feed"]
+        MAP["GPS Severity Map\nL1 / L2 / L3 pins"]
         REPORT["LLM Report Panel"]
         EXPORT["PDF Download"]
-        QUERY["Text Query Input\n→ forwarded to Jetson"]
     end
 
-    WS_OUT -->|"WebSocket"| WS_IN
-    DB --> FEED
-    DB --> MAP
-    DB --> REPORT
-    DB --> EXPORT
-    QUERY -->|"POST /query"| WS_IN
+    QUERY["Text Query\nPOST /query"] -- forwarded to Jetson --> WS_IN
 ```
 
 ---
