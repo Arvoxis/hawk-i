@@ -513,3 +513,4 @@ Replays `data/demo_detections.json` over WebSocket, triggering the full GCS pipe
 *Built at Equinox '26 · Smart Infrastructure Track*
 
 </div>
+# HAWK-I
