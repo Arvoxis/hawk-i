@@ -29,12 +29,23 @@ import cv2
 import numpy as np
 import websockets
 
-# Allow importing multi_query_yoloworld from the repo root
+# Allow importing edge.multi_query_yoloworld from the repo root
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
 # Load .env from repo root — single source of truth for all IPs/ports
 from dotenv import load_dotenv
+
+# Windows consoles default to cp1252, which cannot encode the status glyphs
+# below and would raise UnicodeEncodeError mid-run.  Force UTF-8 on the
+# standard streams; `errors="replace"` keeps output flowing on terminals that
+# still cannot render a given character.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # pragma: no cover - non-TTY streams
+        pass
+
 load_dotenv(_REPO_ROOT / ".env")
 
 _GCS_HOST = os.getenv("GCS_HOST", "172.18.239.242")
@@ -86,7 +97,7 @@ def _init_detector():
         )
         return None
     try:
-        from multi_query_yoloworld import MultiQueryYOLOWorld
+        from edge.multi_query_yoloworld import MultiQueryYOLOWorld
         detector = MultiQueryYOLOWorld(str(model_path), conf=0.25, iou_nms=0.4)
         print("[fake_jetson] MultiQueryYOLOWorld loaded — using real inference")
         return detector

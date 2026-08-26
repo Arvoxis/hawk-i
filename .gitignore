@@ -1,49 +1,54 @@
-# Virtual environment
+# ── Virtual environments ──────────────────────────────────────
 hawki_env/
 venv/
 .venv/
 
-# Python cache
+# ── Python cache ──────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
 
-# Environment variables — real IPs/passwords never committed
+# ── Secrets — real IPs/passwords never committed ──────────────
 .env
-# .env.example is intentionally committed (contains only placeholders)
+# .env.example is intentionally committed (placeholders only)
 
-# Model weights (large binary files)
-models/*.pt
-models/*.pth
-models/*.safetensors
-models/*.onnx
+# ── Model weights ─────────────────────────────────────────────
+# Large checkpoints are downloaded, not committed.  The 5 MB fine-tuned
+# YOLOv11n detector is the one exception — it is the project's core artefact.
+models/*
+!models/hawki_yolo11n.pt
 
-# Database
+# ── Database ──────────────────────────────────────────────────
 *.db
 *.sqlite
 
-# Runtime data / logs
-backend/detections.jsonl
+# ── Runtime data / logs ───────────────────────────────────────
 detections.jsonl
+backend/detections.jsonl
 captures/
+data/frames/
+data/live_frame.jpg
 
-# Auto-generated reports
+# ── Generated reports ─────────────────────────────────────────
 reports/
+data/reports/
 *.pdf
+!docs/**/*.pdf
 
-# IDE
+# ── IDE ───────────────────────────────────────────────────────
 .vscode/
 .idea/
 
-# OS
+# ── OS ────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# Microsoft Office temp files
+# ── Microsoft Office temp files ───────────────────────────────
 ~$*.docx
 ~$*.xlsx
 ~$*.pptx
 
-# Claude Code internals
+# ── Claude Code internals ─────────────────────────────────────
 .claude/

@@ -16,6 +16,17 @@ import os
 import sys
 from pathlib import Path
 
+# Windows consoles default to cp1252, which cannot encode the status glyphs
+# below and would raise UnicodeEncodeError mid-run.  Force UTF-8 on the
+# standard streams; `errors="replace"` keeps output flowing on terminals that
+# still cannot render a given character.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # pragma: no cover - non-TTY streams
+        pass
+
+
 # Load .env from repo root
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
