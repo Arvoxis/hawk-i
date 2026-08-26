@@ -22,8 +22,31 @@ import numpy as np
 import cv2
 import websockets
 
+# Windows consoles default to cp1252, which cannot encode the status glyphs
+# below and would raise UnicodeEncodeError mid-run.  Force UTF-8 on the
+# standard streams; `errors="replace"` keeps output flowing on terminals that
+# still cannot render a given character.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # pragma: no cover - non-TTY streams
+        pass
+
+
 BASE_URL = os.getenv("HAWKI_URL", "http://localhost:8000")
 WS_URL   = os.getenv("HAWKI_WS",  "ws://localhost:8000/ws/drone")
+
+EXPECTED_FRAMES = 5     # frames sent, one detection each
+
+# Frame geometry matches a real 720p drone capture rather than a thumbnail.
+# Area in cm2 is derived from frame width and altitude, so a 320px test frame
+# implies a ~16 m wide field of view and turns every box into square metres.
+FRAME_W, FRAME_H = 1280, 720
+TEST_ALT_M = 12.5
+
+# Box side lengths in pixels, chosen to land in different severity bands at
+# TEST_ALT_M (GSD ~1.3 cm/px): small -> L1, medium -> L2, large -> L3.
+BOX_SIDES_PX = [40, 15, 60, 8, 25]
 
 RESULTS: list[tuple[str, bool, str]] = []   # (check_name, passed, detail)
 
@@ -38,7 +61,7 @@ def _fail(name: str, detail: str = "") -> None:
     print(f"  ✗  {name}" + (f" — {detail}" if detail else ""))
 
 
-def _make_fake_frame(width: int = 320, height: int = 240) -> str:
+def _make_fake_frame(width: int = FRAME_W, height: int = FRAME_H) -> str:
     """Generate a synthetic coloured JPEG frame as base64."""
     img = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
     ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 70])
@@ -57,11 +80,12 @@ def _make_payload(idx: int) -> dict:
     conf = confs[idx % len(confs)]
     src  = sources[idx % len(sources)]
 
-    w, h = 320, 240
-    x1 = int(w * 0.2)
-    y1 = int(h * 0.2)
-    x2 = int(w * 0.6)
-    y2 = int(h * 0.6)
+    w, h = FRAME_W, FRAME_H
+    side = BOX_SIDES_PX[idx % len(BOX_SIDES_PX)]
+    x1 = w // 2 - side // 2
+    y1 = h // 2 - side // 2
+    x2 = x1 + side
+    y2 = y1 + side
 
     det = {"class": cls, "conf": conf, "box": [x1, y1, x2, y2]}
     if src == "gdino":
@@ -72,7 +96,7 @@ def _make_payload(idx: int) -> dict:
         "gps": {
             "lat":   12.9716 + idx * 0.0001,
             "lon":   77.5946 + idx * 0.0001,
-            "alt_m": 12.5,
+            "alt_m": TEST_ALT_M,
         },
         "yolo_detections":  [det] if src == "yolo"  else [],
         "gdino_detections": [det] if src == "gdino" else [],
@@ -119,18 +143,26 @@ async def _check_detections() -> list[dict]:
     print("\n[3] Checking detection DB rows…")
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=15) as client:
         # Wait up to 60s for processing pipeline to finish
-        deadline = time.time() + 60
+        deadline = time.time() + 120
         rows: list[dict] = []
         while time.time() < deadline:
             r = await client.get("/detections/latest?limit=20")
             rows = r.json()
-            if rows:
+            if len(rows) >= EXPECTED_FRAMES:
                 break
             await asyncio.sleep(3)
 
         if not rows:
             _fail("Detections in DB", "no fully-processed detections found")
             return []
+
+        if len(rows) >= EXPECTED_FRAMES:
+            _pass("All frames processed",
+                  f"{len(rows)}/{EXPECTED_FRAMES} detections stored")
+        else:
+            _fail("All frames processed",
+                  f"only {len(rows)}/{EXPECTED_FRAMES} detections stored - "
+                  "the processing queue is falling behind")
 
         # Check area_cm2
         with_area = [d for d in rows if (d.get("area_cm2") or 0) > 0]
@@ -140,12 +172,37 @@ async def _check_detections() -> list[dict]:
             _fail("area_cm2 non-zero", "all area_cm2 are 0 — SAM2 may have failed")
 
         # Check LLM reports
+        # The row appears as soon as SAM 2 sets its severity; the LLM report
+        # lands a few seconds later.  Poll rather than racing the last one.
+        report_deadline = time.time() + 120
+        while time.time() < report_deadline:
+            with_report = [d for d in rows if d.get("llm_report")]
+            if len(with_report) == len(rows):
+                break
+            await asyncio.sleep(3)
+            rows = (await client.get("/detections/latest?limit=20")).json()
+
         with_report = [d for d in rows if d.get("llm_report")]
-        if len(with_report) >= min(3, len(rows)):
-            _pass("llm_report populated", f"{len(with_report)}/{len(rows)} have reports")
+        if with_report and len(with_report) == len(rows):
+            fallbacks = sum(1 for d in with_report
+                            if "rule_based_fallback" in (d.get("llm_report") or ""))
+            source = (f"{len(with_report) - fallbacks} from LLM, {fallbacks} rule-based"
+                      if fallbacks else "all from LLM")
+            _pass("llm_report populated",
+                  f"{len(with_report)}/{len(rows)} have reports ({source})")
+        elif with_report:
+            _fail("llm_report populated",
+                  f"only {len(with_report)}/{len(rows)} have reports")
         else:
             _fail("llm_report populated",
-                  f"only {len(with_report)}/{len(rows)} have reports (need ≥3)")
+                  "no reports written - check Ollama reachability via /health")
+
+        spread = {}
+        for d in rows:
+            spread[d.get("severity")] = spread.get(d.get("severity"), 0) + 1
+        areas = [d.get("area_cm2") or 0 for d in rows]
+        print(f"     severity spread: {spread} | "
+              f"area range: {min(areas):.0f}-{max(areas):.0f} cm2")
 
         return rows
 
@@ -217,25 +274,64 @@ async def _check_embedding_column() -> None:
 
 
 async def _check_pdf() -> None:
-    """Trigger PDF generation and verify file size > 50 KB."""
-    print("\n[6] Checking PDF generation…")
-    async with httpx.AsyncClient(base_url=BASE_URL, timeout=60) as client:
+    """Trigger PDF generation and verify the response is a real PDF.
+
+    Asserts on structure, not byte count: the old >50 KB threshold scaled with
+    however many thumbnails happened to be embedded, so a perfectly correct
+    report for a short run failed the check.
+    """
+    print("\n[6] Checking PDF generation...")
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=120) as client:
         r = await client.get("/api/report/pdf")
 
     if r.status_code != 200:
         _fail("PDF generation", f"HTTP {r.status_code}: {r.text[:100]}")
         return
 
-    size_kb = len(r.content) / 1024
-    if size_kb > 50:
-        _pass("PDF generation", f"{size_kb:.1f} KB — content-type={r.headers.get('content-type')}")
-    else:
-        _fail("PDF generation", f"only {size_kb:.1f} KB — expected >50 KB")
+    content = r.content
+    size_kb = len(content) / 1024
 
-    # Optionally save locally for inspection
-    out_path = Path("tests") / "last_test_report.pdf"
-    out_path.write_bytes(r.content)
-    print(f"     PDF saved to {out_path.resolve()}")
+    if not content.startswith(b"%PDF-"):
+        _fail("PDF generation", f"not a PDF (starts with {content[:8]!r})")
+        return
+    if b"%%EOF" not in content[-2048:]:
+        _fail("PDF generation", "PDF is truncated - no %%EOF trailer")
+        return
+
+    ctype = r.headers.get("content-type", "")
+    if "application/pdf" not in ctype:
+        _fail("PDF content-type", f"got {ctype!r}")
+        return
+
+    pages = content.count(b"/Type /Page") or content.count(b"/Type/Page")
+    _pass("PDF generation", f"{size_kb:.1f} KB, ~{pages} page object(s), {ctype}")
+
+    out_path = Path(__file__).resolve().parent / "last_test_report.pdf"
+    out_path.write_bytes(content)
+    print(f"     PDF saved to {out_path}")
+
+
+async def _check_health() -> None:
+    """Report which dependencies the backend can currently reach."""
+    print("\n[0] Checking backend dependencies...")
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=10) as client:
+        r = await client.get("/health")
+    body = r.json()
+
+    if body.get("db_connected"):
+        _pass("Database reachable", f"session={body.get('session_id')}")
+    else:
+        _fail("Database reachable",
+              "backend cannot reach PostgreSQL - is `docker compose up -d` running?")
+
+    llm = body.get("llm", {})
+    if llm.get("reachable"):
+        _pass("Ollama reachable", f"model={llm.get('model')}")
+    else:
+        # Not a failure: the pipeline degrades to rule-based reports by design.
+        # Surfaced loudly so template-sounding report text has an obvious cause.
+        print(f"  !  Ollama unreachable (model={llm.get('model')}) - "
+              "reports will use the rule-based fallback")
 
 
 async def run_all() -> None:
@@ -255,7 +351,8 @@ async def run_all() -> None:
         print("  Start it with: python run.py")
         sys.exit(1)
 
-    await _send_frames(5)
+    await _check_health()
+    await _send_frames(EXPECTED_FRAMES)
 
     # Give the WebSocket receiver time to enqueue
     await asyncio.sleep(2)
