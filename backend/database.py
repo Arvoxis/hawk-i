@@ -1,22 +1,12 @@
-import sys, os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 import asyncpg
 import logging
 from datetime import datetime as _datetime
-from dotenv import load_dotenv
 
-load_dotenv()
+import config
 
 logger = logging.getLogger(__name__)
 
-DB_CONFIG = {
-    "host":     os.getenv("DB_HOST", "localhost"),
-    "port":     int(os.getenv("DB_PORT", 5432)),
-    "database": os.getenv("DB_NAME", "hawki_db"),
-    "user":     os.getenv("DB_USER", "hawki_user"),
-    "password": os.getenv("DB_PASSWORD", "hawki"),
-}
+DB_CONFIG = config.DB_CONFIG
 
 # ── Session identity ──────────────────────────────────────────
 # Each process start gets its own timestamp-based table so sessions
@@ -79,8 +69,7 @@ async def init_db():
             except Exception:
                 pass
 
-    logger.info(f"Session table created: {CURRENT_TABLE}")
-    print(f"✓ Database connected  |  session table: {CURRENT_TABLE}")
+    logger.info("Database connected | session table: %s", CURRENT_TABLE)
 
 
 async def save_detection_raw(
@@ -183,15 +172,34 @@ async def update_detection_sam(
     logger.debug(f"SAM3 updated row {det_id}: {area_cm2:.1f} cm² sev={severity or '—'}")
 
 
-async def update_detection_report(det_id: int, report: str):
-    """Save the LLM-generated inspection report for a detection row."""
+async def update_detection_report(
+    det_id: int,
+    report: str,
+    only_if_empty: bool = False,
+):
+    """Save the LLM-generated inspection report for a detection row.
+
+    ``only_if_empty`` is used by the periodic batch sweep so it can fill gaps
+    without clobbering the richer per-detection report that the processing
+    worker writes (that one carries DINOv2 and similar-defect context).
+    """
+    guard = " AND llm_report IS NULL" if only_if_empty else ""
     async with pool.acquire() as conn:
         await conn.execute(f"""
             UPDATE {CURRENT_TABLE}
                SET llm_report = $2
-             WHERE id = $1
+             WHERE id = $1{guard}
         """, det_id, report)
     logger.debug(f"LLM report saved for row {det_id}")
+
+
+async def count_missing_llm_reports() -> int:
+    """Number of processed detections still waiting for a report."""
+    async with pool.acquire() as conn:
+        return int(await conn.fetchval(f"""
+            SELECT COUNT(*) FROM {CURRENT_TABLE}
+             WHERE severity IS NOT NULL AND llm_report IS NULL
+        """) or 0)
 
 
 async def get_detection_report(det_id: int) -> dict | None:
@@ -242,15 +250,21 @@ async def get_latest_detections(limit: int = 20) -> list[dict]:
 async def get_recent_detections_for_llm(
     seconds: int = 30,
     min_conf: float = 0.60,
+    only_missing_report: bool = False,
 ) -> list[dict]:
-    """Return detections from the last `seconds` seconds with confidence > min_conf."""
+    """Return recent detections above `min_conf` that are fully processed.
+
+    ``only_missing_report`` restricts the result to rows with no llm_report,
+    so the batch sweep never regenerates a report that already exists.
+    """
+    guard = " AND llm_report IS NULL" if only_missing_report else ""
     async with pool.acquire() as conn:
         rows = await conn.fetch(f"""
             SELECT id, class_name, confidence, severity, area_cm2, lat, lon, altitude_m
               FROM {CURRENT_TABLE}
              WHERE detected_at >= NOW() - INTERVAL '{seconds} seconds'
                AND confidence > $1
-               AND severity IS NOT NULL
+               AND severity IS NOT NULL{guard}
              ORDER BY detected_at DESC
         """, min_conf)
         return [dict(r) for r in rows]
@@ -315,31 +329,26 @@ async def get_detection_embedding(det_id: int) -> dict | None:
 
 
 async def get_severity_counts() -> dict:
-    """Return per-severity detection counts for the site health score."""
+    """Return per-severity detection counts for the site health score.
+
+    Bucketing happens in SQL.  The previous version grouped by the raw
+    confidence column, which produced one group per distinct float value and
+    made the query scale with the number of rows rather than the four buckets.
+    """
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
+        row = await conn.fetchrow(
             f"""
-            SELECT severity, confidence, COUNT(*) AS cnt
+            SELECT
+                COUNT(*)                                                       AS total,
+                COUNT(*) FILTER (WHERE severity = 'L3' AND confidence > 0.85)  AS critical,
+                COUNT(*) FILTER (WHERE severity = 'L3' AND confidence <= 0.85) AS high,
+                COUNT(*) FILTER (WHERE severity = 'L2')                        AS medium,
+                COUNT(*) FILTER (WHERE severity NOT IN ('L2', 'L3'))           AS low
               FROM {CURRENT_TABLE}
              WHERE severity IS NOT NULL
-             GROUP BY severity, confidence
             """
         )
-    counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "total": 0}
-    for row in rows:
-        sev = row["severity"]
-        cnt = int(row["cnt"])
-        conf = float(row["confidence"])
-        counts["total"] += cnt
-        if sev == "L3" and conf > 0.85:
-            counts["critical"] += cnt
-        elif sev == "L3":
-            counts["high"] += cnt
-        elif sev == "L2":
-            counts["medium"] += cnt
-        else:
-            counts["low"] += cnt
-    return counts
+    return {k: int(row[k] or 0) for k in ("total", "critical", "high", "medium", "low")}
 
 
 async def get_filtered_detections(

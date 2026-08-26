@@ -20,42 +20,60 @@ Pipeline per frame:
 import asyncio
 import json
 import logging
-import math
 
 import numpy as np
 
+import config
 import database as _db
 import sam3_worker
-from llm_worker import _call_ollama, _fallback, CONF_THRESH
+import video_stream
+from llm_worker import call_ollama, build_fallback
 from database import save_detection_raw
-from dinov2_embedder import get_embedder, LOW_SIMILARITY_THRESHOLD
+from dinov2_embedder import get_embedder
+
+try:
+    from edge.multi_query_yoloworld import canonical_class
+except ImportError:  # pragma: no cover - only if edge/ is missing
+    def canonical_class(name: str):
+        return None
 
 
-def _estimate_area_cm2_from_box(box: list, alt_m: float) -> float:
-    """Estimate defect area in cm² from a bounding box.
+def _normalise_class(raw: str) -> str:
+    """Fold a detector's raw label to the canonical defect class name.
 
-    Uses the same GSD formula as sam3_worker.
-    When altitude is missing or unreliable (< 2 m), uses 10 m as a safe default
-    so the estimate is always non-zero for a valid box.
+    The fine-tuned YOLOv11n and the open-vocabulary detector spell the same
+    defect differently ("Ruststrain" vs "RustStain", "crack" vs "Crack").
+    Since DINOv2 groups embeddings by exact class string, leaving them
+    unnormalised would build two half-populated centroids per defect and stop
+    either from ever reaching the 5-example minimum.
+    """
+    if not raw:
+        return "unknown"
+    return canonical_class(raw) or raw
+
+
+def _estimate_area_cm2_from_box(box: list, alt_m: float,
+                                frame_width_px: int | None = None) -> float:
+    """Estimate defect area in cm2 from a bounding box alone.
+
+    Used when SAM 2 could not run (no frame was attached to the payload), so
+    the row still carries a usable magnitude.  Shares config.gsd_cm_per_px with
+    the SAM path, so a bbox estimate and a mask measurement of the same region
+    are on the same scale.
     """
     if not box or len(box) != 4:
         return 0.0
-    # Use a safe default altitude so we never return 0 for a valid box
-    effective_alt = alt_m if alt_m >= 2.0 else 10.0
+    effective_alt, _ = config.resolve_altitude(alt_m)
     try:
         x1, y1, x2, y2 = [float(v) for v in box]
-        box_w_px = abs(x2 - x1)
-        box_h_px = abs(y2 - y1)
-        area_px  = box_w_px * box_h_px
+        area_px = abs(x2 - x1) * abs(y2 - y1)
         if area_px <= 0:
             return 0.0
-        # Match sam3_worker sensor constants
-        sensor_w_mm = 6.287
-        focal_mm    = 4.74
-        img_w_px    = 1280
-        gsd = (effective_alt * sensor_w_mm) / (focal_mm * img_w_px) * 10  # cm/px
-        return round(area_px * (gsd ** 2), 2)
-    except Exception:
+        return config.px_to_cm2(
+            area_px, effective_alt,
+            frame_width_px or config.CAMERA_IMAGE_WIDTH_PX,
+        )
+    except (TypeError, ValueError):
         return 0.0
 
 logger = logging.getLogger(__name__)
@@ -86,7 +104,7 @@ async def _process_one(raw_item: dict) -> None:
     # saved: list of (det_id, class_name, confidence, box, source)
     saved = []
     for det in all_dets:
-        class_name = det.get("phrase") or det.get("class", "unknown")
+        class_name = _normalise_class(det.get("phrase") or det.get("class", "unknown"))
         confidence = float(det.get("conf", 0))
         box        = det.get("box", [])
         src        = det.get("source", "yolo_world")
@@ -112,13 +130,17 @@ async def _process_one(raw_item: dict) -> None:
             for _, cls, conf, box in saved
         ]
         try:
-            sam_results, _ = await loop.run_in_executor(
+            sam_results, composite_jpeg = await loop.run_in_executor(
                 None,
                 sam3_worker.process_frame,
                 frame_np,
                 dets_for_sam,
                 {"lat": lat, "lon": lon, "alt_m": alt},
             )
+            # Publish the mask-overlaid frame to /video_feed so the operator
+            # sees what the pipeline measured, not just the raw camera frame.
+            if composite_jpeg:
+                video_stream.set_latest_frame(composite_jpeg)
         except Exception as exc:
             logger.warning("SAM2 batch failed: %s — using confidence-based severity", exc)
 
@@ -144,7 +166,8 @@ async def _process_one(raw_item: dict) -> None:
             severity = "L3" if confidence > 0.85 else "L2" if confidence > 0.65 else "L1"
             # Estimate area from bounding box when no frame was provided.
             # sam_score=-1 signals to the PDF generator that this is an estimate.
-            area_cm2 = _estimate_area_cm2_from_box(box, alt)
+            frame_w = frame_np.shape[1] if frame_np is not None and frame_np.size else None
+            area_cm2 = _estimate_area_cm2_from_box(box, alt, frame_w)
             sam_mask = None
             await _db.update_detection_sam(
                 det_id, 0, area_cm2,
@@ -160,7 +183,7 @@ async def _process_one(raw_item: dict) -> None:
         if i < len(sam_results):
             s_score = sam_results[i].get("sam_score", 1.0)
             s_area  = sam_results[i].get("area_cm2", 999.0)
-            if s_score < 0.25 and s_area < 15.0:
+            if s_score < config.SAM_FP_SCORE_MAX and s_area < config.SAM_FP_AREA_MAX:
                 sam_fp = True
                 logger.info(
                     "SAM FP ▶ %s det_id=%d: sam_score=%.3f area=%.1fcm² → probable false positive",
@@ -182,14 +205,15 @@ async def _process_one(raw_item: dict) -> None:
                 dinov2_flagged = sam_fp   # carry forward SAM flag
                 if centroid is not None:
                     sim = embedder.cosine_similarity(embedding, centroid)
-                    if sim < LOW_SIMILARITY_THRESHOLD:        # 0.45
+                    if sim < config.DINOV2_LOW_SIMILARITY_THRESHOLD:
                         dinov2_flagged = True
                         _dinov2_flagged_local = True
                         severity = _sev_downgrade.get(severity, severity)
                         logger.info(
                             "DINOv2 centroid ▶ %s det_id=%d: sim=%.3f < %.2f "
                             "→ flagged, severity → %s",
-                            class_name, det_id, sim, LOW_SIMILARITY_THRESHOLD, severity,
+                            class_name, det_id, sim,
+                            config.DINOV2_LOW_SIMILARITY_THRESHOLD, severity,
                         )
 
                 # ── Peer check: works from the FIRST detection onward ─────────
@@ -200,14 +224,15 @@ async def _process_one(raw_item: dict) -> None:
                 if similar_list:
                     best_sim = max(s["similarity_score"] for s in similar_list)
                     # Hard FP threshold — stricter than centroid soft-flag
-                    if best_sim < 0.20:
+                    if best_sim < config.DINOV2_PEER_FP_THRESHOLD:
                         dinov2_flagged = True
                         _dinov2_flagged_local = True
                         severity = "L1"   # lowest severity; operator must verify
                         logger.info(
-                            "DINOv2 peer ▶ %s det_id=%d: best_sim=%.3f < 0.20 "
+                            "DINOv2 peer ▶ %s det_id=%d: best_sim=%.3f < %.2f "
                             "→ probable false positive, severity → L1",
                             class_name, det_id, best_sim,
+                            config.DINOV2_PEER_FP_THRESHOLD,
                         )
 
                 similar_json = json.dumps([s["id"] for s in similar_list]) if similar_list else None
@@ -229,7 +254,7 @@ async def _process_one(raw_item: dict) -> None:
                 )
 
         # ── 4. LLM report for high-confidence detections ──────────────────────
-        if confidence >= CONF_THRESH:
+        if confidence >= config.LLM_CONF_THRESHOLD:
             similar_note = ""
             if similar_list:
                 similar_note = "\nSimilar past detections:\n" + "\n".join(
@@ -265,11 +290,11 @@ async def _process_one(raw_item: dict) -> None:
                 f"{similar_note}\n"
                 "Generate the inspection report JSON."
             )
-            try:
-                report = await _call_ollama(prompt)
-            except Exception as exc:
-                logger.warning("LLM call failed for det %d: %s — fallback", det_id, exc)
-                report = _fallback(class_name, confidence, 1)
+            report = await call_ollama(
+                prompt,
+                fallback=lambda: build_fallback(class_name, confidence, 1),
+                context=f"det_id={det_id}",
+            )
 
             await _db.update_detection_report(det_id, json.dumps(report))
 
@@ -286,7 +311,7 @@ async def run_processing_worker() -> None:
     global _processed_total
     logger.info(
         "Processing worker started (LLM threshold=%.2f, queue=asyncio.Queue)",
-        CONF_THRESH,
+        config.LLM_CONF_THRESHOLD,
     )
 
     while True:

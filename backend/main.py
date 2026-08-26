@@ -7,15 +7,15 @@ if sys.platform == "win32":
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from pathlib import Path
-import json, asyncio, base64, logging, queue, threading, time, os
+import json, base64, logging, queue, threading, time, os
 from datetime import datetime
 import numpy as np
 import cv2
 from ultralytics import YOLO
 
+import config
+from schemas import SegmentRequest, QueryRequest
 from video_stream import (
     set_latest_frame, get_latest_frame, make_placeholder_jpeg,
     clear_frame_cache,
@@ -44,12 +44,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── GCS display / stats (integrated from gcs_client.py) ───────
-_HEADLESS  = os.getenv("GCS_HEADLESS", "1") == "1"   # default: headless (no OpenCV window)
-_SAVE_DIR  = os.getenv("GCS_SAVE_DIR",  "captures")
-_AUTO_SAVE = os.getenv("GCS_AUTO_SAVE", "0") == "1"
-_AUTO_SAVE_CONF = float(os.getenv("GCS_AUTO_SAVE_CONF", "0.70"))
-_LOG_FILE  = os.getenv("GCS_LOG_FILE",  "detections.jsonl")
+# ── GCS display / stats (originally a standalone gcs_client.py) ───────
+_HEADLESS       = config.GCS_HEADLESS      # default: headless (no OpenCV window)
+_SAVE_DIR       = str(config.CAPTURES_DIR)
+_AUTO_SAVE      = config.GCS_AUTO_SAVE
+_AUTO_SAVE_CONF = config.GCS_AUTO_SAVE_CONF
+_LOG_FILE       = str(config.DETECTION_LOG)
 
 # Shared queues / events
 _display_queue: queue.Queue = queue.Queue(maxsize=2)
@@ -77,6 +77,7 @@ gcs_stats = {
     "fps":              0.0,
 }
 _fps_times: list[float] = []
+_START_TIME = time.time()
 
 
 def _update_fps():
@@ -228,17 +229,32 @@ if _torch.cuda.is_available():
     _torch.backends.cuda.matmul.allow_tf32 = True
     logger.info("CUDA available — cudnn.benchmark + TF32 enabled")
 
-# ── Ground-station YOLO model (loaded at startup) ─────────────
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_YOLO_WEIGHTS = _PROJECT_ROOT / "models" / "hawki_yolo11n.pt"
+# ── Ground-station YOLO model (optional second detector) ──────
+# Off unless GS_YOLO_ENABLED=1: the Jetson already runs the detector, so
+# re-running it here doubles GPU load.  Turn it on when the payload streams
+# raw frames without on-board inference.
+_YOLO_WEIGHTS = config.YOLO_WEIGHTS
 _YOLO_DEVICE  = 0 if _torch.cuda.is_available() else "cpu"   # 0 = cuda:0
-try:
-    gs_yolo_model = YOLO(str(_YOLO_WEIGHTS))
-    gs_yolo_model.to(_YOLO_DEVICE)
-    logger.info(f"Loaded GS YOLO weights from {_YOLO_WEIGHTS} → device={_YOLO_DEVICE}")
-except Exception as _yolo_err:
-    gs_yolo_model = None
-    logger.warning(f"Could not load GS YOLO weights ({_yolo_err}). GS inference disabled.")
+gs_yolo_model = None
+if config.GS_YOLO_ENABLED:
+    if not _YOLO_WEIGHTS.exists():
+        logger.warning(
+            "GS_YOLO_ENABLED is set but no weights at %s — GS inference disabled. "
+            "Place hawki_yolo11n.pt in models/ or set HAWKI_YOLO_WEIGHTS.",
+            _YOLO_WEIGHTS,
+        )
+    else:
+        try:
+            gs_yolo_model = YOLO(str(_YOLO_WEIGHTS))
+            gs_yolo_model.to(_YOLO_DEVICE)
+            logger.info("Loaded GS YOLO weights from %s → device=%s",
+                        _YOLO_WEIGHTS, _YOLO_DEVICE)
+        except Exception as _yolo_err:
+            gs_yolo_model = None
+            logger.warning("Could not load GS YOLO weights (%s). GS inference disabled.",
+                           _yolo_err)
+else:
+    logger.info("Ground-station YOLO disabled (set GS_YOLO_ENABLED=1 to enable)")
 
 # ── SAM2 segmenter (lazy-loads model on first request) ────────
 segmenter = SAM2Segmenter()
@@ -250,8 +266,8 @@ reporter = LLMReporter()
 @asynccontextmanager
 async def lifespan(app):
     # Purge stale frames from the previous run so the feed isn't frozen
-    clear_frame_cache()
-    logger.info("Cleared stale frames from data/frames/")
+    removed = clear_frame_cache()
+    logger.info("Cleared %d stale frame(s) from %s", removed, config.FRAMES_DIR)
 
     await init_db()
     for tgt, name in [(_gcs_display_thread, "GCS-Display"), (_gcs_stats_thread, "GCS-Stats")]:
@@ -268,6 +284,10 @@ async def lifespan(app):
         logger.error("SAM2 health check FAILED — segmentation will not work correctly")
     else:
         logger.info("SAM2 health check passed ✓")
+
+    # ── Ollama reachability check — a failure here is not fatal, the
+    #    pipeline degrades to rule-based reports (see llm_worker._Breaker).
+    app.state.ollama_ok = await llm_worker.health_check()
 
     # ── Wire LLM batch worker (30 s sweep for dashboard cards) ──
     llm_worker.set_dashboard_clients(connected_dashboards)
@@ -290,8 +310,8 @@ async def lifespan(app):
                 r["detected_at"] = str(r["detected_at"])
 
         if rows:
-            os.makedirs("reports", exist_ok=True)
-            report_path = os.path.join("reports", f"hawki_{_SESSION_ID}.pdf")
+            config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+            report_path = str(config.REPORTS_DIR / f"hawki_{_SESSION_ID}.pdf")
             loop = asyncio.get_running_loop()
             pdf_bytes = await loop.run_in_executor(None, generate_inspection_pdf, rows)
             with open(report_path, "wb") as f:
@@ -325,8 +345,8 @@ connected_dashboards: set = set()
 app = FastAPI(lifespan=lifespan)
 
 # Serve SAM-annotated frames so the dashboard can show them by URL
-os.makedirs(os.path.join("data", "frames"), exist_ok=True)
-app.mount("/frames", StaticFiles(directory=os.path.join("data", "frames")), name="frames")
+config.FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/frames", StaticFiles(directory=str(config.FRAMES_DIR)), name="frames")
 
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -426,11 +446,13 @@ async def drone_receiver(websocket: WebSocket):
                 frame_bytes = base64.b64decode(raw_b64)
                 set_latest_frame(frame_bytes)
 
-                # Decode to numpy for SAM2 — only when there are detections
-                # to process (avoids imdecode overhead on empty frames).
+                # Decode to numpy for SAM2 — only when there is something to
+                # process (avoids imdecode overhead on empty frames).  With
+                # ground-station YOLO enabled every frame must be decoded,
+                # since that pass is what produces the detections.
                 yolo_dets  = data.get("yolo_detections",  [])
                 gdino_dets = data.get("gdino_detections", [])
-                if yolo_dets or gdino_dets:
+                if yolo_dets or gdino_dets or gs_yolo_model is not None:
                     buf = np.frombuffer(frame_bytes, dtype=np.uint8)
                     bgr = cv2.imdecode(buf, cv2.IMREAD_COLOR)
                     if bgr is not None:
@@ -444,6 +466,19 @@ async def drone_receiver(websocket: WebSocket):
             lat = float(gps.get("lat")   or 0.0)
             lon = float(gps.get("lon")   or 0.0)
             alt = float(gps.get("alt_m") or 0.0)
+
+            # ── Optional ground-station YOLO pass ─────────────
+            # Only when explicitly enabled and a frame was decoded; this is the
+            # path for payloads that stream raw video without edge inference.
+            gs_dets: list[dict] = []
+            if gs_yolo_model is not None and frame_np is not None:
+                try:
+                    gs_dets = await loop.run_in_executor(None, run_gs_yolo, frame_np)
+                except Exception as exc:
+                    logger.warning("GS YOLO inference failed: %s", exc)
+                if gs_dets:
+                    yolo_dets = list(yolo_dets) + gs_dets
+                    gcs_stats["gs_detections"] += len(gs_dets)
 
             # ── Fast in-memory stats — NO blocking I/O here ────
             gcs_stats["frames_received"]  += 1
@@ -461,8 +496,9 @@ async def drone_receiver(websocket: WebSocket):
 
             # ── One queue item per frame (not per detection) ───────────────
             # Filter low-confidence detections before queuing.
-            filtered_yolo  = [d for d in yolo_dets  if d.get("conf", 0) >= 0.45]
-            filtered_gdino = [d for d in gdino_dets if d.get("conf", 0) >= 0.45]
+            _min_conf = config.MIN_DETECTION_CONF
+            filtered_yolo  = [d for d in yolo_dets  if d.get("conf", 0) >= _min_conf]
+            filtered_gdino = [d for d in gdino_dets if d.get("conf", 0) >= _min_conf]
 
             if filtered_yolo or filtered_gdino:
                 processing_worker.raw_queue.put_nowait({
@@ -567,9 +603,43 @@ def root():
 
 
 @app.get("/health")
-def health():
-    """Lightweight health check — returns 200 if the server is up."""
-    return {"ok": True, "timestamp": time.time()}
+async def health():
+    """Service health: process, database, drone link, and LLM availability.
+
+    Always returns 200 so a monitor can distinguish "backend unreachable" from
+    "backend up, one dependency degraded" — the individual flags carry that.
+    """
+    db_ok = False
+    detections_total = 0
+    try:
+        from database import pool as _pool
+        if _pool is not None:
+            async with _pool.acquire() as conn:
+                detections_total = int(
+                    await conn.fetchval(f"SELECT COUNT(*) FROM {CURRENT_TABLE}") or 0
+                )
+            db_ok = True
+    except Exception as exc:
+        logger.debug("Health check: DB unavailable (%s)", exc)
+
+    uptime_s = round(time.time() - _START_TIME, 1)
+
+    return {
+        "ok":               True,
+        "timestamp":        time.time(),
+        "uptime_s":         uptime_s,
+        "session_id":       _SESSION_ID,
+        "db_connected":     db_ok,
+        "drone_connected":  gcs_stats["connected"],
+        "detections_total": detections_total,
+        "frames_received":  gcs_stats["frames_received"],
+        "llm": {
+            "model":     config.LLM_MODEL,
+            "reachable": bool(getattr(app.state, "ollama_ok", False)),
+            "breaker":   llm_worker.breaker_state(),
+        },
+        "gs_yolo_enabled":  gs_yolo_model is not None,
+    }
 
 
 @app.get("/frame/latest")
@@ -686,117 +756,24 @@ def _parse_classes(raw: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-# ── Query expansion map ───────────────────────────────────────────────────────
-# Maps user-friendly shorthand → YOLO-World sub-queries that the Jetson model
-# actually understands.  Mirrors multi_query_yoloworld.py QUERY_MAP on the
-# Jetson side; keep in sync when adding new defect classes.
-_QUERY_MAP: dict[str, list[str]] = {
-    "crack": [
-        "thin line in concrete",
-        "fracture in wall",
-        "hairline crack",
-        "vertical crack in wall",
-        "horizontal crack in concrete",
-    ],
-    "spalling": [
-        "broken concrete chunk",
-        "missing piece of wall",
-        "concrete falling off",
-        "deep chip in concrete",
-        "hollow area in wall",
-    ],
-    "exposed rebar": [
-        "bare metal rod",
-        "protruding steel bar",
-        "rebar sticking out of concrete",
-        "metal rod in broken concrete",
-        "corroded steel bar",
-    ],
-    "exposed_reinforcement": [
-        "bare metal rod",
-        "protruding steel bar",
-        "rebar sticking out of concrete",
-        "metal rod in broken concrete",
-        "corroded steel bar",
-    ],
-    "rust": [
-        "brown stain on concrete",
-        "orange streak on wall",
-        "rust mark on surface",
-        "iron stain on cement",
-        "reddish discoloration",
-    ],
-    "ruststain": [
-        "brown stain on concrete",
-        "orange streak on wall",
-        "rust mark on surface",
-        "iron stain on cement",
-        "reddish discoloration",
-    ],
-    "scaling": [
-        "peeling concrete surface",
-        "flaking wall layer",
-        "surface layer coming off",
-        "deteriorating concrete top",
-        "rough eroded surface",
-    ],
-    "efflorescence": [
-        "white powder on wall",
-        "white crust on concrete",
-        "salt deposit on surface",
-        "chalky white stain",
-        "mineral deposit on brick",
-    ],
-    "corrosion": [
-        "corroded metal surface",
-        "rust on steel beam",
-        "oxidised metal structure",
-        "orange rust on rebar",
-        "corroded iron surface",
-    ],
-    "delamination": [
-        "concrete layer separating",
-        "surface sheet peeling from slab",
-        "hollow sound area on wall",
-        "concrete layer debonding",
-        "loose surface layer",
-    ],
-}
+# ── Query expansion ───────────────────────────────────────────────────────────
+# QUERY_MAP and the expansion logic live in edge/multi_query_yoloworld.py — the
+# module that actually feeds the strings to YOLO-World.  The backend used to
+# keep a private copy, and the two had drifted apart (the backend knew about
+# corrosion and delamination; the Jetson did not).  One map, imported by both.
+try:
+    from edge.multi_query_yoloworld import QUERY_MAP as _QUERY_MAP, expand_queries as _expand_query
+except ImportError as _qm_err:  # pragma: no cover - only if edge/ is missing
+    logger.warning("Could not import shared QUERY_MAP (%s) — queries pass through "
+                   "unexpanded", _qm_err)
+    _QUERY_MAP = {}
 
-
-def _expand_query(classes: list[str]) -> list[str]:
-    """
-    Expand each canonical class name into its YOLO-World sub-queries.
-
-    E.g. ["crack"] → ["thin line in concrete", "fracture in wall", ...]
-         ["unknown_thing"] → ["unknown_thing"]   (no expansion, kept as-is)
-
-    Lookup is case-insensitive and normalises spaces/underscores.
-    Deduplicates while preserving insertion order.
-    """
-    expanded: list[str] = []
-    seen: set[str] = set()
-
-    for cls in classes:
-        key = cls.lower().replace(" ", "_").replace("-", "_")
-        # Also try without underscores for natural-language inputs
-        key_plain = cls.lower().strip()
-        sub = _QUERY_MAP.get(key) or _QUERY_MAP.get(key_plain)
-        if sub:
-            for q in sub:
-                if q not in seen:
-                    expanded.append(q)
-                    seen.add(q)
-        else:
-            if cls not in seen:
-                expanded.append(cls)
-                seen.add(cls)
-
-    return expanded
+    def _expand_query(classes: list[str]) -> list[str]:
+        return list(classes)
 
 
 @app.post("/query")
-async def send_query(payload: dict):
+async def send_query(payload: QueryRequest):
     """Parse a free-text query, expand to YOLO-World sub-queries, and forward to Jetson.
 
     Input  {"query": "crack"}
@@ -806,7 +783,7 @@ async def send_query(payload: dict):
     giving the model descriptive visual phrases instead of bare one-word labels.
     """
     global current_query, current_classes
-    query_text = payload.get("query", "").strip()
+    query_text = payload.query.strip()
     current_query = query_text
 
     parsed  = _parse_classes(query_text)       # ["crack", "spalling"]
@@ -889,12 +866,6 @@ async def get_report(detection_id: int):
         "class_name": row["class_name"],
         "report":     row["llm_report"],
     })
-
-
-class SegmentRequest(BaseModel):
-    frame_jpeg:  str         # base64-encoded JPEG
-    box:         list[float] # [x1, y1, x2, y2]
-    altitude_m:  float
 
 
 @app.post("/api/segment")

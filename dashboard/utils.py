@@ -1,9 +1,23 @@
 """Shared helpers and CSS for the Hawk-I dashboard."""
 import json
 import os
+import sys
+from pathlib import Path
+
 import streamlit as st
 
-BACKEND = "http://172.18.239.242:8000"
+# The backend address comes from .env (GCS_HOST / GCS_PORT), resolved by
+# backend/config.py.  It used to be a hardcoded LAN IP, which meant the
+# dashboard only worked on the one network the prototype was demoed on.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+try:
+    import config as _cfg
+    BACKEND = _cfg.BACKEND_URL
+except Exception:  # pragma: no cover — dashboard must still start standalone
+    BACKEND = os.getenv(
+        "HAWKI_BACKEND_URL",
+        f"http://{os.getenv('GCS_HOST', 'localhost')}:{os.getenv('GCS_PORT', '8000')}",
+    )
 
 # ── Severity mappings (ops-center palette) ───────────────────────
 SEV_COLOR   = {"L3": "#FF2D55", "L2": "#FF6B35", "L1": "#30D158"}

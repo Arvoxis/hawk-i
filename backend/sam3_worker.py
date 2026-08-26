@@ -16,21 +16,14 @@ import cv2
 import numpy as np
 import torch
 
+import config
+
 logger = logging.getLogger(__name__)
 
-# ── Camera / GSD constants ────────────────────────────────────────────────────
-_SENSOR_W_MM   = 6.287
-_FOCAL_MM      = 4.74
-_IMG_W_PX      = 1920
-_DEFAULT_ALT_M = 10.0
-_MIN_ALT_M     = 2.0    # altitudes below this are treated as bad GPS
-
-# ── Severity thresholds (area-based) ─────────────────────────────────────────
-_L3_CM2 = 500.0
-_L2_CM2 = 100.0
-
-# ── Mask quality gate — below this IoU score, fall back to bbox area ─────────
-_MASK_QUALITY_THRESHOLD = 0.75
+# Camera intrinsics, severity thresholds and the mask-quality gate all live in
+# backend/config.py.  Importing them keeps this worker in step with the
+# /api/segment endpoint, which used to disagree with it by a factor of 100.
+_MASK_QUALITY_THRESHOLD = config.SAM_MASK_QUALITY_THRESHOLD
 
 # ── Overlay colours (BGR tuples) ──────────────────────────────────────────────
 _SEV_BGR = {
@@ -56,32 +49,23 @@ def _get_segmenter():
 def _resolve_altitude(gps: dict) -> float:
     """Return a safe altitude value, warning if the raw value is bad."""
     raw = (gps or {}).get("alt_m")
-    try:
-        alt = float(raw)
-    except (TypeError, ValueError):
-        alt = 0.0
-
-    if raw is None or alt < _MIN_ALT_M:
+    alt, substituted = config.resolve_altitude(raw)
+    if substituted:
         logger.warning(
             "alt_m=%s is null or <%.1f m — GSD calculation unreliable, "
             "using default %.1f m",
-            raw, _MIN_ALT_M, _DEFAULT_ALT_M,
+            raw, config.MIN_ALT_M, config.DEFAULT_ALT_M,
         )
-        return _DEFAULT_ALT_M
     return alt
 
 
-def _gsd_cm_per_px(alt_m: float, img_w_px: int = _IMG_W_PX) -> float:
+def _gsd_cm_per_px(alt_m: float, img_w_px: int = config.CAMERA_IMAGE_WIDTH_PX) -> float:
     """Ground Sampling Distance in cm/px. Pass the actual decoded frame width."""
-    return (alt_m * _SENSOR_W_MM) / (_FOCAL_MM * img_w_px) * 10
+    return config.gsd_cm_per_px(alt_m, img_w_px)
 
 
 def _classify(area_cm2: float) -> str:
-    if area_cm2 >= _L3_CM2:
-        return "L3"
-    if area_cm2 >= _L2_CM2:
-        return "L2"
-    return "L1"
+    return config.classify_severity(area_cm2)
 
 
 def _draw_detection(

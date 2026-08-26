@@ -26,8 +26,12 @@ logger = logging.getLogger(__name__)
 _MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
-LOW_SIMILARITY_THRESHOLD: float = 0.45   # below this → flag + downgrade severity
-_MIN_CLASS_EXAMPLES: int        = 5      # minimum stored embeddings for centroid
+import config
+
+# Thresholds live in backend/config.py; these aliases keep the historical names
+# working for anything that imports them directly.
+LOW_SIMILARITY_THRESHOLD: float = config.DINOV2_LOW_SIMILARITY_THRESHOLD
+_MIN_CLASS_EXAMPLES: int        = config.DINOV2_MIN_CLASS_EXAMPLES
 
 
 class DINOv2Embedder:
@@ -70,6 +74,13 @@ class DINOv2Embedder:
                 (time.time() - t0) * 1000, self.device,
             )
             return
+        except ImportError:
+            logger.warning(
+                "DINOv2: 'transformers' is not installed — falling back to "
+                "torch.hub, which downloads ~330 MB from the internet on first "
+                "use and therefore breaks offline field deployment. "
+                "Install it with: pip install transformers"
+            )
         except Exception as e:
             logger.warning("DINOv2: transformers load failed (%s) → trying torch.hub", e)
 
