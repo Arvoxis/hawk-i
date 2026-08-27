@@ -13,6 +13,7 @@ Generates a professional, multi-section A4 inspection report with:
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections import Counter
 from datetime import datetime
@@ -28,6 +29,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import (
+    CondPageBreak,
     HRFlowable,
     Image as RLImage,
     KeepTogether,
@@ -40,6 +42,136 @@ from reportlab.platypus import (
 )
 from reportlab.graphics.shapes import Drawing, Rect, Circle, String, Line, Polygon
 from reportlab.graphics import renderPDF
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Fonts
+#
+# ReportLab's built-in Helvetica is Latin-1 only, so the rupee sign, the
+# warning triangle and the filled square all rendered as tofu boxes -- in a
+# report whose entire purpose is quoting Indian repair costs.  Vera.ttf ships
+# with ReportLab but predates the 2010 rupee sign, so it does not help.
+#
+# DejaVuSans covers everything.  It is not a declared dependency, so we look
+# for it in the usual places (including matplotlib's bundle, which is present
+# on most scientific installs) and fall back to sanitising the text when no
+# Unicode font can be found.  The report is then still correct, just plainer.
+# ─────────────────────────────────────────────────────────────────
+
+def _font_candidates() -> list[str]:
+    paths: list[str] = []
+
+    override = os.getenv("HAWKI_PDF_FONT")
+    if override:
+        paths.append(override)
+
+    try:
+        import matplotlib
+        mpl_ttf = os.path.join(
+            os.path.dirname(matplotlib.__file__), "mpl-data", "fonts", "ttf"
+        )
+        paths.append(os.path.join(mpl_ttf, "DejaVuSans.ttf"))
+    except Exception:
+        pass
+
+    paths += [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/Library/Fonts/DejaVuSans.ttf",
+        r"C:\Windows\Fonts\DejaVuSans.ttf",
+    ]
+    return paths
+
+
+def _bold_variant(path: str) -> Optional[str]:
+    """Locate the bold face sitting next to a regular one."""
+    for suffix in ("-Bold", "Bd", "bd", "-bold"):
+        stem, ext = os.path.splitext(path)
+        candidate = f"{stem}{suffix}{ext}"
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def _register_fonts() -> tuple[str, str, bool]:
+    """Return (regular, bold, unicode_ok)."""
+    for path in _font_candidates():
+        if not path or not os.path.exists(path):
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont("HawkiSans", path))
+            bold_path = _bold_variant(path)
+            if bold_path:
+                pdfmetrics.registerFont(TTFont("HawkiSans-Bold", bold_path))
+                bold_name = "HawkiSans-Bold"
+            else:
+                bold_name = "HawkiSans"
+            pdfmetrics.registerFontFamily(
+                "HawkiSans", normal="HawkiSans", bold=bold_name,
+                italic="HawkiSans", boldItalic=bold_name,
+            )
+            logger.info("PDF fonts: using Unicode font %s", os.path.basename(path))
+            return "HawkiSans", bold_name, True
+        except Exception as exc:
+            logger.debug("PDF fonts: %s unusable (%s)", path, exc)
+
+    logger.warning(
+        "PDF fonts: no Unicode TTF found -- falling back to Helvetica and "
+        "transliterating symbols (INR for the rupee sign, etc). "
+        "Install matplotlib or set HAWKI_PDF_FONT to a DejaVuSans.ttf for "
+        "full symbol support."
+    )
+    return FONT, FONT_BOLD, False
+
+
+FONT, FONT_BOLD, UNICODE_OK = _register_fonts()
+
+# Characters Helvetica cannot draw, and what to write instead.
+_TRANSLITERATIONS = {
+    "\u20b9": "INR ",   # rupee sign
+    "\u2011": "-",      # non-breaking hyphen
+    "\u26a0": "!",      # warning triangle
+    "\u25a0": "*",      # filled square
+    "\u2265": ">=",
+    "\u2264": "<=",
+    "\u2013": "-",      # en dash
+    "\u2014": "-",      # em dash
+    "\u2026": "...",
+    "\u00b7": "-",      # middle dot
+    "\u00b2": "2",      # superscript two (cm2)
+}
+
+
+def _t(text) -> str:
+    """Make a string safe for the active font.
+
+    A no-op when a Unicode font is registered; otherwise transliterates the
+    characters Helvetica would render as empty boxes.
+    """
+    text = "" if text is None else str(text)
+    if UNICODE_OK:
+        return text
+    for bad, good in _TRANSLITERATIONS.items():
+        text = text.replace(bad, good)
+    return text
+
+
+def _esc(text) -> str:
+    """Escape XML metacharacters before they reach a Paragraph.
+
+    Defect class names come from model labels and operator queries, so an
+    ampersand in one would otherwise abort rendering of the whole report.
+    """
+    return (
+        _t(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 
 # ── Palette ────────────────────────────────────────────────────
 SEV_BG    = {"L3": colors.HexColor("#fde8ea"), "L2": colors.HexColor("#fff3e0"), "L1": colors.HexColor("#e8f5e9")}
@@ -72,16 +204,17 @@ def _area_str(det: dict) -> str:
     sam_score = det.get("sam_score", 0.0) or 0.0
     if area > 0:
         if sam_score < 0:  # sentinel: bbox-estimated
-            return f"~{area:.1f} cm\u00b2 (est.)"
-        return f"{area:.1f} cm\u00b2"
-    return "\u2014"  # em-dash: truly no data
+            return _t(f"~{area:.1f} cm\u00b2 (est.)")
+        return _t(f"{area:.1f} cm\u00b2")
+    return _t("\u2014")  # em-dash: truly no data
 
 
 def _draw_footer(canvas, doc):
     canvas.saveState()
-    canvas.setFont("Helvetica", 7.5)
+    canvas.setFont(FONT, 7.5)
     canvas.setFillColor(GREY)
-    canvas.drawString(MARGIN, 1.1 * cm, "Generated by Hawk\u2011I \u2014 Aerial Infrastructure Inspector")
+    canvas.drawString(MARGIN, 1.1 * cm,
+                      _t("Generated by Hawk-I \u2014 Aerial Infrastructure Inspector"))
     canvas.drawRightString(PAGE_W - MARGIN, 1.1 * cm, f"Page {doc.page}")
     canvas.setStrokeColor(LINE)
     canvas.setLineWidth(0.5)
@@ -95,18 +228,26 @@ def _styles() -> dict:
     def make(name, parent="Normal", **kw):
         return ParagraphStyle(name, parent=base[parent], **kw)
 
+    for style in base.byName.values():
+        if getattr(style, "fontName", "").startswith("Helvetica"):
+            style.fontName = FONT_BOLD if "Bold" in style.fontName else FONT
+
     return {
-        "title":    make("ReportTitle",  fontSize=22, fontName="Helvetica-Bold",
-                         textColor=NAVY, spaceAfter=2, alignment=TA_LEFT),
-        "subtitle": make("ReportSub",    fontSize=10, textColor=GREY, spaceAfter=3),
-        "section":  make("Section",      fontSize=12, fontName="Helvetica-Bold",
+        # 19pt with explicit leading: at 22pt the title wrapped onto a second
+        # line whose default leading was too tight, so it printed on top of
+        # the subtitle.
+        "title":    make("ReportTitle",  fontSize=19, leading=23, fontName=FONT_BOLD,
+                         textColor=NAVY, spaceAfter=4, alignment=TA_LEFT),
+        "subtitle": make("ReportSub",    fontSize=10, fontName=FONT,
+                         textColor=GREY, spaceAfter=3),
+        "section":  make("Section",      fontSize=12, fontName=FONT_BOLD,
                          textColor=NAVY, spaceBefore=14, spaceAfter=6),
         "body":     make("Body",         fontSize=10, leading=14),
         "small":    make("Small",        fontSize=8,  textColor=GREY, leading=11),
         "report":   make("ReportText",   fontSize=9,  leading=13, leftIndent=10,
                          textColor=colors.HexColor("#333333")),
         "cell":     make("Cell",         fontSize=8,  leading=11),
-        "badge":    make("Badge",        fontSize=8,  fontName="Helvetica-Bold",
+        "badge":    make("Badge",        fontSize=8,  fontName=FONT_BOLD,
                          alignment=TA_CENTER),
     }
 
@@ -182,11 +323,11 @@ def _build_health_gauge(score: int, draw_w: float = 480, draw_h: float = 48) -> 
     # Score label
     d.add(String(bar_x + bar_w + 8, bar_y + 4,
                  f"{score}/100",
-                 fontName="Helvetica-Bold", fontSize=11, fillColor=fill_col))
+                 fontName=FONT_BOLD, fontSize=11, fillColor=fill_col))
 
     # Label
     d.add(String(bar_x, bar_y - 8, "SITE HEALTH SCORE",
-                 fontName="Helvetica-Bold", fontSize=7, fillColor=GREY))
+                 fontName=FONT_BOLD, fontSize=7, fillColor=GREY))
 
     return d
 
@@ -206,16 +347,19 @@ def _build_class_chart(detections: list, draw_w: float = 480) -> Drawing:
     n = len(items)
     bar_h = 14
     gap   = 7
-    label_w = 130
+    label_w = 150          # was 130 -- "Exposed_reinforcement" was being cut
+    count_w = 28           # reserved gutter so the count never sits outside
     row_h = bar_h + gap
     draw_h = n * row_h + 30
 
     d = Drawing(draw_w, draw_h)
-    max_count = max(v for _, v in items)
-    chart_w   = draw_w - label_w - 50
+    # 15% headroom: at max_count the bar previously filled the frame edge to
+    # edge and its value label was drawn past the right border.
+    max_count = max(v for _, v in items) * 1.15
+    chart_w   = draw_w - label_w - count_w - 10
 
     d.add(String(0, draw_h - 12, "Detections by Defect Class",
-                 fontName="Helvetica-Bold", fontSize=9, fillColor=NAVY))
+                 fontName=FONT_BOLD, fontSize=9, fillColor=NAVY))
 
     for i, (cls, cnt) in enumerate(items):
         y = draw_h - 28 - i * row_h
@@ -227,14 +371,18 @@ def _build_class_chart(detections: list, draw_w: float = 480) -> Drawing:
                    fillColor=None,
                    strokeColor=colors.HexColor("#dee2e6"), strokeWidth=0.4))
 
-        # Class label (truncate if long)
-        lbl = cls if len(cls) <= 20 else cls[:18] + "…"
+        # Class label, truncated to what actually fits the reserved width
+        lbl = _t(cls)
+        while lbl and pdfmetrics.stringWidth(lbl, FONT, 7.5) > label_w - 8:
+            lbl = lbl[:-1]
+        if lbl != _t(cls):
+            lbl = lbl[:-1] + "\u2026" if UNICODE_OK else lbl[:-3] + "..."
         d.add(String(0, y + 3, lbl,
-                     fontName="Helvetica", fontSize=7.5, fillColor=colors.HexColor("#333")))
+                     fontName=FONT, fontSize=7.5, fillColor=colors.HexColor("#333")))
 
-        # Count label
-        d.add(String(label_w + bar_px + 4, y + 3, str(cnt),
-                     fontName="Helvetica-Bold", fontSize=7.5, fillColor=NAVY))
+        # Count label, in its own gutter to the right of the frame
+        d.add(String(label_w + chart_w + 6, y + 3, str(cnt),
+                     fontName=FONT_BOLD, fontSize=7.5, fillColor=NAVY))
 
     return d
 
@@ -260,13 +408,13 @@ def _confidence_table(detections: list, S: dict) -> Table:
     ts = TableStyle([
         ("BACKGROUND",    (0, 0), (-1, 0), NAVY),
         ("TEXTCOLOR",     (0, 0), (-1, 0), WHITE),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME",      (0, 0), (-1, 0), FONT_BOLD),
         ("FONTSIZE",      (0, 0), (-1, 0), 8),
-        ("FONTNAME",      (0, 1), (-1, -1), "Helvetica"),
+        ("FONTNAME",      (0, 1), (-1, -1), FONT),
         ("FONTSIZE",      (0, 1), (-1, -1), 8),
         ("ROWBACKGROUNDS",(0, 1), (-1, -2), [LIGHT, WHITE]),
         ("BACKGROUND",    (0, -1), (-1, -1), colors.HexColor("#e9ecef")),
-        ("FONTNAME",      (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTNAME",      (0, -1), (-1, -1), FONT_BOLD),
         ("GRID",          (0, 0), (-1, -1), 0.4, LINE),
         ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING",    (0, 0), (-1, -1), 5),
@@ -275,7 +423,7 @@ def _confidence_table(detections: list, S: dict) -> Table:
         ("ALIGN",         (2, 0), (3, -1), "CENTER"),
         # Color the High-confidence count cell
         ("TEXTCOLOR",     (2, 1), (2, 1), colors.HexColor("#1e8449")),
-        ("FONTNAME",      (2, 1), (2, 1), "Helvetica-Bold"),
+        ("FONTNAME",      (2, 1), (2, 1), FONT_BOLD),
     ])
     t.setStyle(ts)
     return t
@@ -312,9 +460,9 @@ def _summary_table(detections: list, S: dict) -> Table:
     style = TableStyle([
         ("BACKGROUND",    (0, 0), (-1, 0), NAVY),
         ("TEXTCOLOR",     (0, 0), (-1, 0), WHITE),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME",      (0, 0), (-1, 0), FONT_BOLD),
         ("FONTSIZE",      (0, 0), (-1, 0), 9),
-        ("FONTNAME",      (0, 1), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME",      (0, 1), (0, -1), FONT_BOLD),
         ("FONTSIZE",      (0, 1), (-1, -1), 9),
         ("GRID",          (0, 0), (-1, -1), 0.4, LINE),
         ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
@@ -327,7 +475,7 @@ def _summary_table(detections: list, S: dict) -> Table:
          SEV_BG["L3"] if by_sev.get("L3", 0) > 0 else LIGHT),
         ("TEXTCOLOR",     (1, 2), (1, 2),
          SEV_FG["L3"] if by_sev.get("L3", 0) > 0 else colors.black),
-        ("FONTNAME",      (1, 2), (1, 2), "Helvetica-Bold"),
+        ("FONTNAME",      (1, 2), (1, 2), FONT_BOLD),
     ])
     t.setStyle(style)
     return t
@@ -360,9 +508,9 @@ def _detection_table(detections: list) -> Table:
     ts = TableStyle([
         ("BACKGROUND",    (0, 0), (-1, 0), NAVY),
         ("TEXTCOLOR",     (0, 0), (-1, 0), WHITE),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME",      (0, 0), (-1, 0), FONT_BOLD),
         ("FONTSIZE",      (0, 0), (-1, 0), 8),
-        ("FONTNAME",      (0, 1), (-1, -1), "Helvetica"),
+        ("FONTNAME",      (0, 1), (-1, -1), FONT),
         ("FONTSIZE",      (0, 1), (-1, -1), 7.5),
         ("ROWBACKGROUNDS",(0, 1), (-1, -1), [LIGHT, WHITE]),
         ("GRID",          (0, 0), (-1, -1), 0.3, LINE),
@@ -377,7 +525,7 @@ def _detection_table(detections: list) -> Table:
     for row_idx, sev in sev_rows:
         ts.add("BACKGROUND", (2, row_idx), (2, row_idx), SEV_BG.get(sev, WHITE))
         ts.add("TEXTCOLOR",  (2, row_idx), (2, row_idx), SEV_FG.get(sev, colors.black))
-        ts.add("FONTNAME",   (2, row_idx), (2, row_idx), "Helvetica-Bold")
+        ts.add("FONTNAME",   (2, row_idx), (2, row_idx), FONT_BOLD)
     t.setStyle(ts)
     return t
 
@@ -411,7 +559,7 @@ def _defect_detail_cards(detections: list, S: dict) -> list:
         lon  = round(det.get("lon") or 0, 5)
         area = _area_str(det)
 
-        dino_text = " ⚠ DINOv2 FLAGGED" if det.get("dinov2_flagged") else ""
+        dino_text = _t(" \u26a0 DINOv2 FLAGGED") if det.get("dinov2_flagged") else ""
 
         sim_text = ""
         try:
@@ -428,8 +576,9 @@ def _defect_detail_cards(detections: list, S: dict) -> list:
         )
 
         info_lines = [
-            f"<b>#{det.get('id','?')} — {det.get('class_name','?')}</b>  "
-            f"[{SEV_LABEL.get(sev, sev)}]{dino_text}",
+            "<b>#{} \u2014 {}</b>  [{}]{}".format(
+                det.get("id", "?"), _esc(det.get("class_name", "?")),
+                SEV_LABEL.get(sev, sev), dino_text),
             f"Area: {area}  |  Conf: {conf}%  |  {ts}",
             f"GPS: {lat}, {lon}  |  Alt: {det.get('altitude_m', 0):.1f} m",
             f"Source: {det.get('source_model', '—')}{sim_text}",
@@ -444,12 +593,12 @@ def _defect_detail_cards(detections: list, S: dict) -> list:
                     urgency = parsed.get("urgency_days", "")
                     desc    = parsed.get("description", "")
                     cost    = parsed.get("estimated_cost_inr")
-                    cost_s  = f"\u20b9{cost:,}" if isinstance(cost, int) else ""
+                    cost_s  = _t(f"\u20b9{cost:,}") if isinstance(cost, int) else ""
                     if desc:
-                        info_lines.append(f"Assessment: {desc}")
+                        info_lines.append(f"Assessment: {_esc(desc)}")
                     if action:
                         info_lines.append(
-                            f"Action: {action}" + (f"  ({urgency}d)" if urgency else "")
+                            f"Action: {_esc(action)}" + (f"  ({_esc(urgency)}d)" if urgency else "")
                         )
                     if cost_s:
                         info_lines.append(f"Est. cost: {cost_s}")
@@ -458,7 +607,10 @@ def _defect_detail_cards(detections: list, S: dict) -> list:
             else:
                 info_lines.append(f"Report: {llm_report[:120].replace(chr(10),' ')}…")
 
-        info_col = [[Paragraph(line, S["cell"]) for line in info_lines]]
+        # One Paragraph per ROW.  This was previously a single row of N
+        # columns, which laid the four info lines out side by side and pushed
+        # everything past "Area:" off the right edge of the page.
+        info_col = [[Paragraph(line, S["cell"])] for line in info_lines]
 
         if thumb:
             row      = [[thumb, Table(info_col, colWidths=[11 * cm])]]
@@ -489,8 +641,10 @@ def _defect_detail_cards(detections: list, S: dict) -> list:
 def _critical_details(critical: list, S: dict) -> list:
     flowables = [Paragraph("Critical Defect Analysis", S["section"])]
     flowables.append(Paragraph(
-        f"The following {len(critical)} L3/HIGH severity detection(s) include "
-        "full Gemma-3 LLM inspection reports:",
+        f"The following {len(critical)} detection(s) were measured at L3/HIGH "
+        "severity from their segmented area. Each carries a generated "
+        "inspection assessment; where that assessment grades the defect "
+        "differently from the measurement, both are shown.",
         S["body"],
     ))
     flowables.append(Spacer(1, 8))
@@ -501,7 +655,8 @@ def _critical_details(critical: list, S: dict) -> list:
         ts       = str(det.get("detected_at", ""))[:19]
 
         header_row = [[
-            Paragraph(f"<b>#{det.get('id', '?')} — {det.get('class_name', '?')}</b>", S["body"]),
+            Paragraph("<b>#{} \u2014 {}</b>".format(
+                det.get("id", "?"), _esc(det.get("class_name", "?"))), S["body"]),
             Paragraph(
                 f"GPS: {round(det.get('lat') or 0, 5)}, {round(det.get('lon') or 0, 5)} &nbsp;|&nbsp; "
                 f"Area: {area_s} &nbsp;|&nbsp; Confidence: {conf_pct}% &nbsp;|&nbsp; {ts}",
@@ -526,15 +681,34 @@ def _critical_details(critical: list, S: dict) -> list:
                 r = json.loads(raw)
                 em  = "—"
                 cost = r.get("estimated_cost_inr")
-                cost_str = ("\u20b9{:,}".format(cost) if isinstance(cost, int)
-                            else str(cost or em))
+                cost_str = (_t("\u20b9{:,}".format(cost)) if isinstance(cost, int)
+                            else _esc(cost or em))
+                measured_sev = det.get("severity", "L1")
+                llm_sev = r.get("severity_level", em)
+                sev_line = "<b>Measured severity:</b> {} ({}) from {} of segmented area".format(
+                    SEV_LABEL.get(measured_sev, measured_sev), measured_sev, area_s,
+                )
+                assessed = "<b>Assessed severity:</b> {} ({})".format(
+                    _esc(r.get("severity_label", em)), _esc(llm_sev),
+                )
+                if llm_sev and llm_sev != measured_sev:
+                    assessed += (
+                        " &nbsp;<font color='#d35400'>[differs from measurement "
+                        "\u2014 area governs, review manually]</font>"
+                    )
+
+                origin = ("rule-based template (LLM unavailable)"
+                          if r.get("generated_by") == "rule_based_fallback"
+                          else "generated assessment")
+
                 lines = [
-                    "<b>Severity:</b> {} ({})".format(
-                        r.get("severity_label", em), r.get("severity_level", em)),
-                    "<b>Urgency:</b> {} days to remediation".format(r.get("urgency_days", em)),
-                    "<b>Description:</b> {}".format(r.get("description", em)),
-                    "<b>Recommended Action:</b> {}".format(r.get("recommended_action", em)),
+                    sev_line,
+                    assessed,
+                    "<b>Urgency:</b> {} days to remediation".format(_esc(r.get("urgency_days", em))),
+                    "<b>Description:</b> {}".format(_esc(r.get("description", em))),
+                    "<b>Recommended Action:</b> {}".format(_esc(r.get("recommended_action", em))),
                     "<b>Estimated Cost (INR):</b> {}".format(cost_str),
+                    "<font size=7 color='#6c757d'>Source: {}</font>".format(origin),
                 ]
                 for line in lines:
                     report_paras.append(Paragraph(line, S["report"]))
@@ -549,8 +723,10 @@ def _critical_details(critical: list, S: dict) -> list:
                                     else Spacer(1, 4))
 
         report_paras.append(Spacer(1, 14))
-        flowables.append(KeepTogether(report_paras[:6]))
-        flowables.extend(report_paras[6:])
+        # Keep the header glued to the first few lines; let the rest reflow.
+        keep = min(6, len(report_paras))
+        flowables.append(KeepTogether(report_paras[:keep]))
+        flowables.extend(report_paras[keep:])
 
     return flowables
 
@@ -559,7 +735,7 @@ def _critical_details(critical: list, S: dict) -> list:
 # Detection coordinate map
 # ─────────────────────────────────────────────────────────────────
 
-def _build_map_drawing(detections: list, draw_w: float = 450, draw_h: float = 300) -> Drawing:
+def _build_map_drawing(detections: list, draw_w: float = 450, draw_h: float = 320) -> Drawing:
     lats = [float(d.get("lat") or 0) for d in detections]
     lons = [float(d.get("lon") or 0) for d in detections]
 
@@ -577,7 +753,7 @@ def _build_map_drawing(detections: list, draw_w: float = 450, draw_h: float = 30
         lon_min = min(lons) - lon_span * pad_frac
         lon_max = max(lons) + lon_span * pad_frac
 
-    margin  = 30
+    margin   = 42          # room for the coordinate labels on both axes
     usable_w = draw_w - 2 * margin
     usable_h = draw_h - 2 * margin
 
@@ -607,15 +783,42 @@ def _build_map_drawing(detections: list, draw_w: float = 450, draw_h: float = 30
         d.add(Circle(x, y, 5, fillColor=SEV_DRAW.get(sev, GREY),
                      strokeColor=WHITE, strokeWidth=1))
 
-    legend_x, legend_y = draw_w - margin - 90, margin + 10
-    for sev, label in [("L3", "HIGH"), ("L2", "MEDIUM"), ("L1", "LOW")]:
-        d.add(Circle(legend_x, legend_y, 4, fillColor=SEV_DRAW[sev], strokeColor=None))
-        d.add(String(legend_x + 8, legend_y - 4, label,
-                     fontName="Helvetica", fontSize=7, fillColor=colors.HexColor("#333")))
-        legend_y += 16
+    # ── Coordinate labels ────────────────────────────────────────────────
+    # The plot previously carried no numbers at all, so a reader could see the
+    # spatial arrangement of the defects but not where any of them were.
+    axis_col = colors.HexColor("#5a6472")
+    for frac in (0.0, 0.5, 1.0):
+        lon = lon_min + (lon_max - lon_min) * frac
+        lat = lat_min + (lat_max - lat_min) * frac
+        x = margin + usable_w * frac
+        y = margin + usable_h * frac
 
-    d.add(String(margin + 4, draw_h - margin + 4, "Detection Map",
-                 fontName="Helvetica-Bold", fontSize=9, fillColor=NAVY))
+        d.add(String(x, margin - 12, f"{lon:.5f}", textAnchor="middle",
+                     fontName=FONT, fontSize=6, fillColor=axis_col))
+        d.add(String(margin - 4, y - 2, f"{lat:.5f}", textAnchor="end",
+                     fontName=FONT, fontSize=6, fillColor=axis_col))
+
+    d.add(String(margin + usable_w / 2, margin - 22, "Longitude (E)",
+                 textAnchor="middle", fontName=FONT_BOLD, fontSize=6.5,
+                 fillColor=axis_col))
+
+    # Approximate ground scale: 1 degree of latitude is ~111.32 km everywhere.
+    span_m = (lat_max - lat_min) * 111_320
+    scale_txt = (f"Vertical span \u2248 {span_m:.0f} m"
+                 if span_m < 1000 else f"Vertical span \u2248 {span_m / 1000:.2f} km")
+    d.add(String(draw_w - margin, draw_h - margin + 6, _t(scale_txt),
+                 textAnchor="end", fontName=FONT, fontSize=6.5, fillColor=axis_col))
+
+    # ── Legend, below the plot so it cannot sit on top of a pin ──────────
+    legend_x = margin
+    for sev, label in [("L3", "HIGH"), ("L2", "MEDIUM"), ("L1", "LOW")]:
+        d.add(Circle(legend_x + 4, 12, 4, fillColor=SEV_DRAW[sev], strokeColor=None))
+        d.add(String(legend_x + 12, 9, label,
+                     fontName=FONT, fontSize=7, fillColor=colors.HexColor("#333")))
+        legend_x += 62
+
+    d.add(String(margin + 4, draw_h - margin + 6, "Detection Map",
+                 fontName=FONT_BOLD, fontSize=9, fillColor=NAVY))
     return d
 
 
@@ -720,8 +923,11 @@ def generate_inspection_pdf(
     story: list = []
 
     # ══ PAGE 1 — Mission Cover ══════════════════════════════════════════════════
-    story.append(Paragraph("HAWK\u2011I STRUCTURAL INSPECTION REPORT", S["title"]))
-    story.append(Paragraph("Aerial Infrastructure Inspector · AI-powered defect analysis", S["subtitle"]))
+    story.append(Paragraph(_esc("HAWK-I STRUCTURAL INSPECTION REPORT"), S["title"]))
+    story.append(Paragraph(
+        _esc("Aerial Infrastructure Inspector \u00b7 automated defect analysis"),
+        S["subtitle"],
+    ))
     story.append(HRFlowable(width="100%", thickness=2, color=NAVY, spaceAfter=6))
     story.append(Spacer(1, 6))
 
@@ -730,13 +936,12 @@ def generate_inspection_pdf(
         ["Report generated",   now],
         ["Flight window",      flight_dur],
         ["GPS bounding box",   bbox_str],
-        ["Sensor / Models",    "MJPEG cam · DINOv2-base · SAM2 segmentation · Gemma-3 LLM"],
+        ["Model stack",        _t("YOLOv11n + YOLO-World \u00b7 SAM 2.1 \u00b7 "
+                                    "DINOv2-base \u00b7 Gemma 3")],
         ["Total detections",   str(total)],
-        ["Critical (L3/HIGH)", str(by_sev.get("L3", 0))],
-        ["Medium  (L2)",       str(by_sev.get("L2", 0))],
-        ["Low     (L1)",       str(by_sev.get("L1", 0))],
-        ["SAM-measured areas", f"{sam_measured}  |  ~{est_area} bbox-estimated"],
-        ["Site health score",  f"{health_score}/100" if health_score is not None else "—"],
+        ["Area measurement",   f"{sam_measured} SAM-measured, "
+                               f"{est_area} estimated from bounding box"],
+        ["Site health score",  f"{health_score}/100" if health_score is not None else "\u2014"],
     ]
     if mission_summary and mission_summary.get("llm_summary"):
         meta_rows.append(["Mission assessment",
@@ -746,9 +951,9 @@ def generate_inspection_pdf(
     meta_t.setStyle(TableStyle([
         ("BACKGROUND",    (0, 0), (-1, 0), NAVY),
         ("TEXTCOLOR",     (0, 0), (-1, 0), WHITE),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME",      (0, 0), (-1, 0), FONT_BOLD),
         ("FONTSIZE",      (0, 0), (-1, 0), 9),
-        ("FONTNAME",      (0, 1), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME",      (0, 1), (0, -1), FONT_BOLD),
         ("FONTSIZE",      (0, 1), (-1, -1), 9),
         ("GRID",          (0, 0), (-1, -1), 0.4, LINE),
         ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
@@ -756,12 +961,6 @@ def generate_inspection_pdf(
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("LEFTPADDING",   (0, 0), (-1, -1), 8),
         ("ROWBACKGROUNDS",(0, 1), (-1, -1), [LIGHT, WHITE]),
-        # Highlight critical count red if any
-        ("BACKGROUND",    (1, 6), (1, 6),
-         SEV_BG.get("L3", LIGHT) if by_sev.get("L3", 0) > 0 else LIGHT),
-        ("TEXTCOLOR",     (1, 6), (1, 6),
-         SEV_FG["L3"] if by_sev.get("L3", 0) > 0 else colors.black),
-        ("FONTNAME",      (1, 6), (1, 6), "Helvetica-Bold"),
     ]))
     story.append(meta_t)
     story.append(Spacer(1, 10))
@@ -776,13 +975,16 @@ def generate_inspection_pdf(
     story.append(_summary_table(detections, S))
     story.append(Spacer(1, 10))
 
-    # Confidence band breakdown
+    # Confidence band breakdown.  These two blocks used to be separated by an
+    # unconditional PageBreak, which stranded the confidence table alone on an
+    # otherwise blank page 2.  CondPageBreak only breaks when the next block
+    # genuinely will not fit.
     story.append(Paragraph("Confidence Distribution", S["section"]))
     story.append(_confidence_table(detections, S))
-    story.append(PageBreak())
+    story.append(Spacer(1, 14))
 
-    # ══ PAGE 2 — Class distribution + Defect Details ═══════════════════════════
     if detections:
+        story.append(CondPageBreak(6 * cm))
         story.append(Paragraph("Detection Statistics", S["section"]))
         story.append(_build_class_chart(detections))
         story.append(Spacer(1, 16))
@@ -807,11 +1009,12 @@ def generate_inspection_pdf(
     if detections:
         story.append(PageBreak())
         story.append(Paragraph("Detection Map", S["section"]))
+        _sq = "\u25a0" if UNICODE_OK else "#"
         story.append(Paragraph(
             "Detection pins colour-coded by severity: "
-            "<font color='#e74c3c'>■ HIGH</font>  "
-            "<font color='#e67e22'>■ MEDIUM</font>  "
-            "<font color='#27ae60'>■ LOW</font>",
+            f"<font color='#e74c3c'>{_sq} HIGH</font>  "
+            f"<font color='#e67e22'>{_sq} MEDIUM</font>  "
+            f"<font color='#27ae60'>{_sq} LOW</font>",
             S["body"],
         ))
         story.append(Spacer(1, 8))

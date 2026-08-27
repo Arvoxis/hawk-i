@@ -10,27 +10,21 @@ Usage:
     results = segmenter.segment_detections(frame, detections, altitude_m=12.0)
 """
 
-import os
 import numpy as np
 import torch
 import logging
-from pathlib import Path
 from typing import Optional
 
-from dotenv import load_dotenv
-load_dotenv()
+import config
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Camera intrinsics — configurable via .env for different drone hardware.
-# ---------------------------------------------------------------------------
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CHECKPOINT = str(_PROJECT_ROOT / "models" / "sam2.1_hiera_small.pt")
-
-DEFAULT_FOCAL_LENGTH_MM = float(os.getenv("CAMERA_FOCAL_MM",        "3.67"))
-DEFAULT_SENSOR_WIDTH_MM = float(os.getenv("CAMERA_SENSOR_WIDTH_MM", "6.287"))
-DEFAULT_IMAGE_WIDTH_PX  = int(os.getenv("CAMERA_IMAGE_WIDTH_PX",    "1280"))
+# Camera intrinsics and checkpoint locations all come from backend/config.py,
+# which resolves them once from .env.  Nothing here re-reads the environment.
+DEFAULT_CHECKPOINT      = str(config.SAM2_CHECKPOINT)
+DEFAULT_FOCAL_LENGTH_MM = config.CAMERA_FOCAL_MM
+DEFAULT_SENSOR_WIDTH_MM = config.CAMERA_SENSOR_WIDTH_MM
+DEFAULT_IMAGE_WIDTH_PX  = config.CAMERA_IMAGE_WIDTH_PX
 
 
 class SAM2Segmenter:
@@ -39,7 +33,7 @@ class SAM2Segmenter:
     def __init__(
         self,
         checkpoint_path: str = DEFAULT_CHECKPOINT,
-        model_cfg: str = "configs/sam2.1/sam2.1_hiera_s.yaml",
+        model_cfg: str = config.SAM2_MODEL_CFG,
         device: Optional[str] = None,
         focal_length_mm: float = DEFAULT_FOCAL_LENGTH_MM,
         sensor_width_mm: float = DEFAULT_SENSOR_WIDTH_MM,
@@ -157,11 +151,10 @@ class SAM2Segmenter:
         image_width_px: int = DEFAULT_IMAGE_WIDTH_PX,
     ) -> float:
         """
-        Convert pixel area to real-world area in cm².
+        Convert pixel area to real-world area in cm2.
 
-        Uses the pinhole camera model:
-            GSD (cm/px) = (altitude_cm × sensor_width_mm) / (focal_length_mm × image_width_px × 10)
-            area_cm2 = area_px × GSD²
+        Delegates to config.px_to_cm2 so the ground-sampling-distance formula
+        exists in exactly one place (see backend/config.py:gsd_cm_per_px).
 
         Args:
             area_px:        number of pixels in the mask
@@ -169,19 +162,9 @@ class SAM2Segmenter:
             image_width_px: image width in pixels
 
         Returns:
-            float: area in cm²
+            float: area in cm2
         """
-        altitude_cm = altitude_m * 100.0
-
-        # Ground Sampling Distance: how many cm each pixel represents
-        gsd_cm_per_px = (
-            altitude_cm * self.sensor_width_mm
-        ) / (
-            self.focal_length_mm * image_width_px * 10.0
-        )
-
-        area_cm2 = area_px * (gsd_cm_per_px ** 2)
-        return round(area_cm2, 2)
+        return config.px_to_cm2(area_px, altitude_m, image_width_px)
 
     # ------------------------------------------------------------------
     # High-level: segment all detections in a frame

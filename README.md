@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/YOLOv11n-TensorRT%20INT8-00C4B4?style=for-the-badge&logo=nvidia&logoColor=white"/>
-<img src="https://img.shields.io/badge/Grounding%20DINO-Zero--Shot-4A90D9?style=for-the-badge&logo=pytorch&logoColor=white"/>
-<img src="https://img.shields.io/badge/SAM3-Segmentation-FF6B35?style=for-the-badge&logo=pytorch&logoColor=white"/>
-<img src="https://img.shields.io/badge/DINOv2-Anomaly%20Detection-7B61FF?style=for-the-badge"/>
-<img src="https://img.shields.io/badge/Gemma--3%2012B-LangChain-F5A623?style=for-the-badge"/>
+<img src="https://img.shields.io/badge/YOLOv11n-Fine--tuned-00C4B4?style=for-the-badge&logo=nvidia&logoColor=white"/>
+<img src="https://img.shields.io/badge/YOLO--World-Open%20Vocabulary-4A90D9?style=for-the-badge&logo=pytorch&logoColor=white"/>
+<img src="https://img.shields.io/badge/SAM%202.1-Segmentation-FF6B35?style=for-the-badge&logo=pytorch&logoColor=white"/>
+<img src="https://img.shields.io/badge/DINOv2-Verification-7B61FF?style=for-the-badge"/>
+<img src="https://img.shields.io/badge/Gemma%203-Ollama-F5A623?style=for-the-badge"/>
 <img src="https://img.shields.io/badge/FastAPI-WebSocket-009688?style=for-the-badge&logo=fastapi&logoColor=white"/>
 <img src="https://img.shields.io/badge/Jetson%20Orin%20Nano-Edge%20AI-76B900?style=for-the-badge&logo=nvidia&logoColor=white"/>
 
@@ -13,14 +13,13 @@
 # Hawk-I
 ### AI-Powered Drone Infrastructure Inspection System
 
-*Zero-shot defect detection · Pixel-accurate segmentation · Temporal anomaly scoring · LLM-generated compliance reports*
+*Open-vocabulary defect detection · Pixel-accurate area measurement · Embedding-based false-positive rejection · LLM-generated inspection reports*
 
 <br/>
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Built for](https://img.shields.io/badge/Built%20for-Equinox%20'26-orange?style=flat-square)](https://equinox.vit.ac.in)
 
 <br/>
 
@@ -34,16 +33,22 @@
 
 - [Overview](#overview)
 - [System Architecture](#system-architecture)
-- [Edge Pipeline (Jetson)](#edge-pipeline)
+- [Edge Pipeline](#edge-pipeline)
 - [GCS Pipeline](#gcs-pipeline)
 - [AI Model Stack](#ai-model-stack)
-- [Benchmark & Performance](#benchmark--performance)
+- [Area Measurement & Severity](#area-measurement--severity)
+- [Repeat Inspection & Defect Growth](#repeat-inspection--defect-growth)
 - [Defect Classes](#defect-classes)
-- [Severity Classification](#severity-classification)
+- [Running Without a Drone](#running-without-a-drone)
+- [Results on Real Imagery](#results-on-real-imagery)
+- [Degradation Behaviour](#degradation-behaviour)
 - [API Reference](#api-reference)
-- [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
+- [Configuration](#configuration)
+- [Testing](#testing)
+- [Verified Environment](#verified-environment)
+- [Known Limitations](#known-limitations)
 
 ---
 
@@ -51,11 +56,13 @@
 
 Infrastructure inspection in India is still largely manual — engineers physically climbing bridges, flyovers, and buildings to look for cracks. It's slow, inconsistent, and dangerous. Hawk-I replaces that.
 
-An **NVIDIA Jetson Orin Nano** mounted on a quadcopter runs two AI detectors simultaneously at the edge: a custom **YOLOv11n** (TensorRT INT8, 60+ FPS) for known defect classes, and **Grounding DINO-T** (FP16) for zero-shot text-prompted detection — an engineer types any natural-language defect description into the dashboard and the drone finds it in real time, no retraining required.
+An **NVIDIA Jetson Orin Nano** mounted on a quadcopter runs two detectors at the edge: a **fine-tuned YOLOv11n** for the six known defect classes, and **YOLO-World** for open-vocabulary, text-prompted detection — an engineer types a defect description into the dashboard and the drone starts looking for it in real time, with no retraining.
 
-Detection payloads stream over WebSocket to a **FastAPI** backend on the ground where **SAM 3** produces pixel-accurate segmentation masks, real-world defect area is calculated in cm² from camera intrinsics and drone altitude, and severity is auto-classified against IRC/IS 456 thresholds. **DINOv2-B/14** compares current inspection frames against stored baseline embeddings via cosine similarity, flagging structural degradation that neither detector would catch. **Gemma-3 12B** generates structured report entries every 30 seconds — grounded in IS 456:2000 and IRC 22-2015 standards — with severity levels, remediation steps, urgency timelines, and INR cost estimates.
+The open-vocabulary path is the part worth understanding. YOLO-World matches image regions against CLIP text embeddings, and CLIP has rarely seen the phrase *"efflorescence"* paired with a relevant photo. So each canonical defect class is expanded into five plain-language visual descriptions — `"white powder on wall"`, `"salt deposit on surface"` — which are what actually reach the model. All sub-queries across all classes are encoded in a single CLIP forward pass at init, so the expansion costs nothing per frame. Detections are reverse-mapped to their canonical class and merged with per-class NMS. See [docs/MULTI_QUERY.md](docs/MULTI_QUERY.md).
 
-Everything runs **fully offline**. No internet required during field inspections.
+Detection payloads stream over WebSocket to a **FastAPI** backend on the ground, where **SAM 2.1** produces pixel-accurate masks, real-world defect area is computed in cm² from camera intrinsics and drone altitude, and severity is classified against area thresholds. **DINOv2** embeds each masked crop and compares it against previously seen examples of the same class — a detection that looks nothing like its own class is flagged and downgraded, which is what turns a noisy detector into a usable report. **Gemma 3** via Ollama writes the structured inspection entry: severity, remediation, urgency, and an INR cost estimate.
+
+Everything runs **offline** once models are cached locally. No internet is required during a field inspection.
 
 ---
 
@@ -65,48 +72,55 @@ Everything runs **fully offline**. No internet required during field inspections
 flowchart TD
     subgraph DRONE["🚁  Drone — Jetson Orin Nano 8GB"]
         direction TB
-        CAM["IMX477 · MIPI CSI-2"]
-        GS["GStreamer · nvarguscamerasrc"]
+        CAM["CSI Camera · GStreamer"]
         FQ["OpenCV Frame Queue"]
-        T1["YOLOv11n TensorRT INT8\n60+ FPS · every frame"]
-        T2["Grounding DINO-T FP16\n8–12 FPS · every 5th frame"]
-        FUSE["IoU Fusion & Deduplication  ·  threshold 0.50"]
-        GPS["GPS Attach · MAVLink · u-blox NEO-M8N · 10 Hz"]
-        WS_OUT["WebSocket Client · JSON + base64 JPEG"]
+        T1["YOLOv11n fine-tuned<br/>6 defect classes"]
+        T2["YOLO-World v2-S<br/>open vocabulary · CLIP text"]
+        QMAP["Query expansion<br/>1 class → 5 visual phrases"]
+        NMS["Per-class NMS  ·  IoU 0.45"]
+        GPS["GPS attach · MAVLink · Pixhawk"]
+        WS_OUT["WebSocket client<br/>JSON + base64 JPEG"]
 
-        CAM --> GS --> FQ
+        CAM --> FQ
         FQ --> T1 & T2
-        T1 & T2 --> FUSE --> GPS --> WS_OUT
+        QMAP --> T2
+        T1 & T2 --> NMS --> GPS --> WS_OUT
     end
 
-    WS_OUT -- WebSocket --> WS_IN
+    WS_OUT -- "ws://GCS:8000/ws/drone" --> WS_IN
 
-    subgraph GCS["🖥️  Ground Control Station — FastAPI Backend"]
+    subgraph GCS["🖥️  Ground Control Station — FastAPI"]
         direction TB
-        WS_IN["WebSocket Server · /ws/drone"]
-        SAM["SAM 3 Small · Segmentation + Area cm²"]
-        subgraph PARALLEL["Parallel Processing"]
-            direction LR
-            DINO["DINOv2-B/14\nTemporal Anomaly\n768-dim cosine sim"]
-            LLM["Gemma-3 12B · Ollama\nLangChain · IS 456 / IRC 22-2015\n30s batch · Pydantic schema"]
-        end
-        DB["PostgreSQL 16 + PostGIS 3.4 · Docker · GIST spatial index"]
-        PDF["WeasyPrint · PDF Export"]
+        WS_IN["WebSocket server · /ws/drone"]
+        GATE["Confidence gate<br/>MIN_DETECTION_CONF"]
+        QUEUE["asyncio processing queue"]
+        SAM["SAM 2.1 Small<br/>1 image encode · N boxes"]
+        GSD["GSD → area cm²<br/>+ severity L1/L2/L3"]
+        DINO["DINOv2-base<br/>768-d embedding"]
+        VERIFY["Centroid + peer check<br/>flag & downgrade"]
+        LLM["Gemma 3 · Ollama<br/>circuit-breaker guarded"]
+        DB["PostgreSQL 16 + PostGIS 3.4<br/>session-isolated tables"]
+        PDF["ReportLab · PDF export"]
 
-        WS_IN --> SAM --> PARALLEL --> DB --> PDF
+        WS_IN --> GATE --> QUEUE --> SAM --> GSD
+        SAM --> DINO --> VERIFY
+        GSD --> LLM
+        VERIFY --> LLM
+        GSD & VERIFY & LLM --> DB --> PDF
     end
 
-    DB -- live data --> DASH
+    SAM -- "mask overlay JPEG" --> FEED
+    DB -- "live polling" --> DASH
 
     subgraph DASH["📊  Dashboard — Streamlit + Folium"]
         direction LR
-        FEED["MJPEG Feed\n/video_feed"]
-        MAP["GPS Severity Map\nL1 / L2 / L3 pins"]
-        REPORT["LLM Report Panel"]
-        EXPORT["PDF Download"]
+        FEED["MJPEG feed<br/>/video_feed"]
+        MAP["GPS severity map<br/>L1 / L2 / L3 pins"]
+        REPORT["Report panel"]
+        EXPORT["PDF download"]
     end
 
-    QUERY["Text Query\nPOST /query"] -- forwarded to Jetson --> WS_IN
+    QUERY["Operator text query<br/>POST /query"] -- "expanded, forwarded to Jetson" --> WS_IN
 ```
 
 ---
@@ -115,31 +129,29 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant CAM as IMX477 Camera
-    participant GS as GStreamer
+    participant CAM as CSI Camera
     participant Q as Frame Queue
-    participant Y as YOLOv11n INT8
-    participant G as Grounding DINO-T
-    participant F as IoU Fusion
+    participant Y as YOLOv11n
+    participant W as YOLO-World
+    participant F as Per-class NMS
     participant GPS as MAVLink GPS
     participant WS as WebSocket
 
-    loop Every frame (~16ms)
-        CAM->>GS: Raw frame (MIPI CSI-2)
-        GS->>Q: Decoded BGR frame
-        Q->>Y: 640×640 resized (all frames)
-        Y-->>F: Detections [{class, bbox, conf}]
+    Note over W: set_classes() runs ONCE at init —<br/>all sub-queries in one CLIP text encode
+
+    loop Every frame
+        CAM->>Q: Decoded BGR frame
+        Q->>Y: Fine-tuned detector
+        Y-->>F: [{class, box, conf}]
+        Q->>W: One vision forward pass
+        W-->>F: [{phrase, box, conf}] → reverse-mapped to class
     end
 
-    loop Every 5th frame (~80ms)
-        Q->>G: 800×800 + active text queries
-        G-->>F: Zero-shot detections [{bbox, conf, label}]
-    end
-
-    F->>F: NMS dedup (IoU > 0.50)
-    F->>GPS: Attach lat/lon from MAVLink stream
+    F->>F: NMS within each class only<br/>(boxes of different classes never merge)
+    F->>GPS: Attach lat / lon / alt from MAVLink
     GPS->>WS: JSON payload + base64 JPEG
-    WS-->>WS: Buffer up to 100 detections if disconnected
+
+    Note over WS: Backend may push {"type":"query", classes:[...]}<br/>at any time → set_classes() re-runs
 ```
 
 ---
@@ -149,270 +161,339 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     subgraph RECV["Receive"]
-        WS["WebSocket\n/ws/drone"]
-        PARSE["Parse JSON\n+ decode JPEG"]
+        WS["/ws/drone"]
+        DEC["Decode JPEG<br/>only when detections present"]
+        GATE["conf ≥ MIN_DETECTION_CONF"]
     end
 
-    subgraph PROC["Process"]
-        SAM["SAM 3 Small\nbbox → binary mask\n1920×1080"]
-        GSD["GSD Calculation\naltitude + IMX477 intrinsics\n→ area_cm²"]
-        SEV["Severity Classifier\nL1 / L2 / L3\nIRC thresholds"]
-        EMB["DINOv2-B/14\n224×224 crop\n768-dim embedding"]
-        COS["Cosine Similarity\nvs stored baseline\nflag < 0.82"]
+    subgraph MEASURE["Measure"]
+        ROW["Insert raw row<br/>severity = NULL"]
+        SAM["SAM 2.1<br/>box → binary mask"]
+        QUAL["Mask quality gate<br/>score < 0.75 → use bbox area"]
+        AREA["area_cm² = px × GSD²"]
+        SEV["Severity L1 / L2 / L3"]
+    end
+
+    subgraph VERIFY["Verify"]
+        EMB["DINOv2 embedding<br/>of masked crop"]
+        CENT["vs class centroid<br/>(needs ≥5 examples)"]
+        PEER["vs nearest peer<br/>(works from detection #1)"]
+        FLAG["Flag + downgrade severity"]
     end
 
     subgraph REPORT["Report"]
-        BATCH["30s Detection Batch\nconf > 0.60"]
-        LLM["Gemma-3 12B\nLangChain pipeline\nPydantic JSON output"]
-        RETRY["Retry once on\nschema violation"]
+        BREAK{"LLM circuit<br/>breaker open?"}
+        OLLAMA["Gemma 3 · structured JSON"]
+        RULE["Rule-based fallback"]
     end
 
-    subgraph STORE["Store & Serve"]
-        DB["PostGIS DB\nGIST spatial index"]
-        MJPEG["MJPEG HTTP Server\n/video_feed"]
-        PDF["WeasyPrint\nPDF export"]
-    end
+    DB["PostGIS · session table"]
 
-    WS --> PARSE --> SAM --> GSD --> SEV
-    SAM --> EMB --> COS
-    SEV --> BATCH --> LLM --> RETRY
+    WS --> DEC --> GATE --> ROW --> SAM --> QUAL --> AREA --> SEV
+    SAM --> EMB --> CENT --> FLAG
+    EMB --> PEER --> FLAG
+    SEV --> BREAK
+    FLAG --> BREAK
+    BREAK -- no --> OLLAMA --> DB
+    BREAK -- yes --> RULE --> DB
     SEV --> DB
-    COS --> DB
-    LLM --> DB
-    DB --> MJPEG
-    DB --> PDF
+    FLAG --> DB
 ```
+
+Only rows with a non-NULL `severity` are visible to the dashboard and PDF, so a
+half-processed detection never surfaces as a finding.
 
 ---
 
 ## AI Model Stack
 
-| Model | Location | Task | Input | Latency | Precision |
-|---|---|---|---|---|---|
-| YOLOv11n | Jetson (TensorRT) | Fixed-class defect detection | 640×640 | ~8ms · 60+ FPS | INT8 |
-| Grounding DINO-T | Jetson (TensorRT) | Zero-shot text-prompted detection | 800×800 + text | ~83–125ms · 8–12 FPS | FP16 |
-| SAM 3 Small | GCS (GPU) | Pixel-level segmentation + area | 1080p + bbox prompt | ~50–80ms | FP32 |
-| DINOv2-B/14 | GCS (GPU) | Temporal anomaly via embedding similarity | 224×224 crop | ~15ms | FP32 |
-| Gemma-3 12B | GCS (Ollama) | Structured report generation | Text metadata | ~2–4s / 30s batch | via Ollama |
+| Model | Runs on | Task | Weights |
+|---|---|---|---|
+| **YOLOv11n** (fine-tuned) | Jetson · optionally GCS | Fixed-class defect detection | `models/hawki_yolo11n.pt` — 5.4 MB, in-repo |
+| **YOLO-World v2-S** | Jetson | Open-vocabulary text-prompted detection | `yolov8s-worldv2.pt` — auto-downloaded by Ultralytics |
+| **SAM 2.1 Hiera Small** | GCS (GPU) | Pixel-level segmentation → area | `models/sam2.1_hiera_small.pt` — 184 MB, downloaded |
+| **DINOv2-base** | GCS (GPU) | 768-d embeddings for verification | `facebook/dinov2-base` via `transformers` |
+| **Gemma 3 4B** | GCS (Ollama) | Structured report generation | `ollama pull gemma3:4b` |
+
+**A note on names.** `backend/sam3_worker.py` and the `gdino_detections` payload field are historical: the worker runs **SAM 2.1**, and the open-vocabulary detections come from **YOLO-World**, not Grounding DINO. The names are kept because the Jetson-side client and the stored payloads use them; treat them as labels, not as claims about which model is running.
+
+**Performance characteristics.** SAM 2 encodes each frame **once** and then predicts every box inside that single inference context, so per-frame segmentation cost is near-constant in the number of detections rather than linear. Measured end-to-end throughput on the reference GCS (RTX 3050 6 GB laptop) is dominated by the LLM step, not by vision: SAM 2 + DINOv2 complete in well under a second per frame, while a Gemma 3 report takes ~10–12 s on CPU. The published figures below are targets, not measurements from this repository's test runs — re-measure on your own hardware before quoting them.
 
 ---
 
-## Benchmark & Performance
+## Area Measurement & Severity
 
-### Edge Inference (Jetson Orin Nano 8GB · JetPack 6.0)
+Defect area is derived from the pinhole camera model. This is the measurement the whole report rests on, so it is defined in exactly one place — `backend/config.py` — and pinned by [`tests/test_geometry.py`](tests/test_geometry.py).
 
-| Metric | Value |
-|---|---|
-| YOLOv11n INT8 — inference latency | ~8ms per frame |
-| YOLOv11n INT8 — throughput | 60+ FPS |
-| Grounding DINO-T FP16 — throughput | 8–12 FPS (every 5th frame) |
-| Dual-thread combined load | ~65–75% GPU utilisation |
-| Thermal throttle trigger | 85°C → DINO paused, YOLO continues |
-| WebSocket buffer on disconnect | 100 detections (deque) |
-| Reconnect strategy | Exponential backoff: 1s → 2s → 4s → max 30s |
+```
+GSD_m_per_px  = (altitude_m × sensor_width_mm) / (focal_length_mm × image_width_px)
+GSD_cm_per_px = GSD_m_per_px × 100
 
-### GCS Processing (per detection)
+area_cm² = mask_pixel_count × GSD_cm_per_px²
+```
 
-| Stage | Latency |
-|---|---|
-| SAM 3 Small segmentation | ~50–80ms |
-| GSD area calculation | < 1ms |
-| DINOv2-B/14 embedding + cosine sim | ~15ms |
-| PostGIS write | ~2–5ms |
-| End-to-end GCS pipeline | ~70–100ms |
+The millimetre units of sensor width and focal length cancel, so the raw ratio is already in metres and the `× 100` converts to centimetres. Worked example — IMX477 at 10 m over a 1920 px frame:
 
-### LLM Report Pipeline
+```
+GSD = (10 × 6.287) / (4.74 × 1920) × 100 = 0.6908 cm/px
+A 100 × 100 px mask  →  10 000 × 0.6908²  =  4 772 cm²
+```
 
-| Metric | Value |
-|---|---|
-| Report batch interval | 30 seconds |
-| Confidence threshold for batch inclusion | > 0.60 |
-| Typical generation time (Gemma-3 12B) | 2–4s per batch |
-| Schema enforcement | Pydantic + 1 retry on violation |
-| Fallback on retry failure | Default template |
+Severity is assigned from the measured area:
 
-### Model Size & Memory
+| Level | Area | Label | Map pin | Urgency |
+|---|---|---|---|---|
+| L1 | < 100 cm² | Minor | 🟢 Green | Monitor at next scheduled inspection |
+| L2 | 100 – 500 cm² | Moderate | 🟡 Orange | Repair within 30–90 days |
+| L3 | ≥ 500 cm² | Critical | 🔴 Red | Immediate action required |
 
-| Model | Disk Size | GPU Memory (approx.) |
-|---|---|---|
-| YOLOv11n TensorRT INT8 engine | ~5MB | ~300MB |
-| Grounding DINO-T FP16 | ~340MB | ~700MB |
-| SAM 3 Small | ~400MB | ~1.2GB |
-| DINOv2-B/14 (timm) | ~330MB | ~800MB |
-| Gemma-3 12B (Ollama) | ~8GB | ~10GB (quantised) |
+Thresholds are configurable (`SEVERITY_L2_CM2`, `SEVERITY_L3_CM2`) because they interact strongly with flight altitude — see [Known Limitations](#known-limitations).
+
+Two guards keep bad geometry from producing confident nonsense:
+
+- **Altitude sanity** — a null or sub-2 m altitude reading means the GPS fix is unusable, not that the drone is hovering at 1 m. Such readings are replaced by `DEFAULT_ALT_M` (10 m) and logged, so the estimate degrades instead of collapsing to zero.
+- **Mask quality gate** — when SAM 2's predicted IoU falls below `SAM_MASK_QUALITY_THRESHOLD` (0.75), the bounding-box pixel count is used instead of the mask. A `sam_score` of `-1` marks a row whose area is a bbox estimate; the PDF renders those as `~N cm² (est.)`.
+
+---
+
+## Repeat Inspection & Defect Growth
+
+A single flight tells you a structure has a 340 cm² crack. Two flights three
+months apart tell you whether it is spreading — which is the question that
+actually drives a repair budget.
+
+Every detection's DINOv2 embedding is written to a persistent
+`defect_embeddings` archive that outlives the per-session detection tables.
+When a new detection is embedded, it is matched against that archive:
+
+```mermaid
+flowchart LR
+    NEW["New detection<br/>768-d embedding"]
+    ARCH[("defect_embeddings<br/>all prior inspections")]
+    MATCH{"cosine similarity<br/>≥ 0.80 ?"}
+    SAME["Treated as the same<br/>physical defect"]
+    NEWDEF["Treated as a<br/>new defect"]
+    DELTA["Δ area vs last sighting<br/>→ GROWING / stable / reduced"]
+    PROMPT["Fed into the report prompt:<br/>urgency raised when growing"]
+
+    NEW --> MATCH
+    ARCH --> MATCH
+    MATCH -- yes --> SAME --> DELTA --> PROMPT
+    MATCH -- no --> NEWDEF
+```
+
+A match above 0.80 similarity from an earlier session is treated as the same
+defect seen again, and the report records the change:
+
+```
+Previously recorded 2026-05-14 at 118.0 cm² (similarity 0.87);
+now 341.2 cm² — +189%, GROWING
+```
+
+Anything beyond ±25% is called out as growing or reduced; a large *reduction*
+is flagged for manual check rather than celebrated, since the usual cause is a
+different viewing angle rather than self-healing concrete.
+
+This also repairs the class-centroid check. It needs five stored examples of a
+class before it will run, and a single flight rarely produces five of the same
+defect — scoped to one session, that check almost never fired. Against the
+archive it accumulates across flights.
+
+`GET /health` reports the archive size, so you can see how much history the
+verification stage is drawing on:
+
+```json
+"embedding_archive": { "available": true, "embeddings": 47, "classes": 5, "sessions": 6 }
+```
 
 ---
 
 ## Defect Classes
 
-Trained on **1,680 annotated images** of Indian infrastructure defects across six classes:
+Trained on **1,680 annotated images** of Indian infrastructure defects:
 
-| Class | Description | Typical Trigger |
+| Class | Description | Typical trigger |
 |---|---|---|
-| `crack` | Surface fractures in concrete or masonry | Structural stress, thermal cycling |
-| `spalling` | Concrete surface degradation exposing aggregate | Freeze-thaw, corrosion-induced pressure |
-| `corrosion` | Metal surface oxidation / rust | Moisture ingress, chloride exposure |
-| `exposed_rebar` | Visible reinforcing steel through concrete cover | Advanced spalling, impact damage |
-| `efflorescence` | White salt deposits on surface | Active water seepage through concrete |
-| `vegetation` | Plant growth on structural surfaces | Joint gaps, drainage failure |
+| `Crack` | Surface fractures in concrete or masonry | Structural stress, thermal cycling |
+| `Spalling` | Concrete surface degradation exposing aggregate | Freeze-thaw, corrosion-induced pressure |
+| `RustStain` | Iron oxide staining on concrete | Moisture ingress, chloride exposure |
+| `Exposed_reinforcement` | Visible reinforcing steel through concrete cover | Advanced spalling, impact damage |
+| `Efflorescence` | White salt deposits on surface | Active water seepage |
+| `Scaling` | Peeling / flaking of the surface layer | Surface deterioration, erosion |
 
-**Training config:** 1,680 images · mAP@0.5: 0.45 · NMS conf: 0.45 · IoU: 0.50 · TensorRT INT8 with 500-frame calibration dataset
+Two further classes — `Corrosion` and `Delamination` — exist in the open-vocabulary query map only. YOLO-World can be prompted for them at runtime; the fine-tuned YOLOv11n was not trained on them.
 
 ---
 
-## Severity Classification
+## Running Without a Drone
 
-Defect severity is auto-classified based on SAM 3 measured area against IRC-calibrated thresholds:
+The pipeline does not need a flying drone, or any drone. Three entry points,
+in increasing order of realism:
 
-| Level | Area | Label | Map Pin | Urgency |
-|---|---|---|---|---|
-| L1 | ≤ 100 cm² | Minor | 🟢 Green | Monitor at next scheduled inspection |
-| L2 | 101–500 cm² | Moderate | 🟡 Orange | Repair within 30–90 days |
-| L3 | > 500 cm² | Critical | 🔴 Red | Immediate action required (< 7 days) |
+| Tool | What it does |
+|---|---|
+| `scripts/fake_jetson.py` | Streams synthetic detections over the live WebSocket. Fastest smoke test. |
+| `scripts/run_batch.py` | Sends a **folder of real photographs** through the real ingest path. |
+| `scripts/fetch_real_frames.py` | Builds a corpus of genuine defect photographs to feed the above. |
 
-**Area formula:**
+Batch mode is the useful one. Point it at archived inspection footage, a phone
+walk-around, or a downloaded corpus, and every image goes through the same
+WebSocket ingest, confidence gate, processing queue, segmentation, verification
+and reporting that a real flight uses:
 
+```bash
+python scripts/fetch_real_frames.py --per-class 4
 ```
-area_cm² = pixel_count × GSD²
 
-GSD (cm/px) = (altitude_m × sensor_width_mm) / (focal_length_mm × image_width_px) × 100
+```bash
+GS_YOLO_ENABLED=1 python run.py
 ```
 
-Camera intrinsics used: IMX477 — sensor width 6.287mm, focal length 4.74mm, 1920px width.
+```bash
+python scripts/run_batch.py --images data/real_frames --altitude 2.5 --report survey.pdf
+```
+
+Two flags matter more than they look:
+
+- **`--altitude`** is not cosmetic. Every reported cm² is derived from it, so a
+  close-range photograph tagged with a 10 m altitude will report areas roughly
+  16× too large. Set it to the real standoff distance of the imagery.
+- **`GS_YOLO_ENABLED=1`** on the backend. Batch frames carry no edge
+  detections, so the ground-station detector is what has to fire; without it
+  the run completes and finds nothing.
+
+The corpus fetcher draws from Wikimedia Commons rather than a general image
+search: every file carries an explicit licence, the URLs are stable, and much
+of the structural-survey material is US federal public domain (HAER/HABS bridge
+surveys). Licence and author for each file are written to
+`data/real_frames/MANIFEST.json`. The images themselves are gitignored — the
+script is the reproducible artefact, not the pixels.
+
+---
+
+## Results on Real Imagery
+
+Run on 11 genuine photographs of deteriorating concrete and steel (Wikimedia
+Commons, mostly HAER bridge surveys), at 2.5 m assumed standoff:
+
+| | |
+|---|---|
+| Frames in | 11 |
+| Detections | 7 across 4 classes |
+| Measured areas | 166 – 7 937 cm², spread across L2 and L3 |
+| Segmentation | SAM 2 produced a mask for every detection |
+| Verification | DINOv2 flagged 2 detections as probable false positives |
+| Reports | generated for every detection above threshold |
+
+What this establishes and what it does not:
+
+- **The pipeline is sound on real imagery.** Segmentation, area measurement,
+  verification and reporting all behave correctly on photographs that look
+  nothing like the training set.
+- **The detector is the weak link.** On these frames the fine-tuned YOLOv11n
+  fires at 0.26–0.65 confidence, and often on the wrong class — a photograph of
+  wall cracking came back as `Spalling`. That is consistent with its reported
+  mAP@0.5 of 0.45 on 1 680 training images. Most detections land *below* the
+  default 0.45 intake gate, so the default configuration finds almost nothing
+  in out-of-distribution imagery.
+- **The honest reading**: the surrounding system generalises; the detector does
+  not yet. More training data is the fix, not more pipeline.
+
+Reproduce with the two commands in
+[Running Without a Drone](#running-without-a-drone), adding
+`MIN_DETECTION_CONF=0.25` to see the sub-threshold detections.
+
+---
+
+## Degradation Behaviour
+
+Field hardware fails. Each stage degrades to a usable result rather than taking the pipeline down:
+
+| Failure | Behaviour |
+|---|---|
+| No frame in payload | Area estimated from the bounding box; `sam_score = -1` marks it as an estimate |
+| SAM 2 returns an empty mask | Falls back to bbox pixel area, logged as a warning |
+| SAM 2 mask quality below threshold | Uses bbox area instead of the mask |
+| DINOv2 unavailable | Detection is stored without embedding; no similarity search, pipeline continues |
+| Fewer than 5 examples of a class | Centroid check is skipped; the peer check still runs from detection #1 |
+| **Ollama down or slow** | **Circuit breaker opens after 3 consecutive failures; reports switch to the rule-based generator for 120 s** |
+| Drone disconnects | Backend keeps serving stored detections; the MJPEG feed shows a placeholder |
+| Dashboard cannot reach the backend | Renders empty panels rather than crashing |
+
+The circuit breaker matters more than it looks. Without it, an unreachable Ollama costs a full 30 s timeout **per detection**, paid serially by the processing worker — which throttles the entire pipeline to roughly one frame every 30 seconds while appearing to work. Reports written by the fallback carry `"generated_by": "rule_based_fallback"`, so template text is always attributable.
 
 ---
 
 ## API Reference
 
-### WebSocket Endpoints
+### WebSocket
 
 #### `WS /ws/drone`
-Receives detection payloads from the Jetson edge device.
+Receives detection payloads from the Jetson; also carries backend → drone commands on the same socket.
 
-**Incoming payload schema:**
+**Incoming (Jetson → GCS):**
 ```json
 {
-  "frame_id": "uuid-string",
   "timestamp": 1718000000.123,
-  "frame_b64": "<base64-encoded JPEG>",
+  "frame_jpeg": "<base64 JPEG>",
   "gps": { "lat": 12.9716, "lon": 77.5946, "alt_m": 15.2 },
-  "detections": [
-    {
-      "model": "yolo",
-      "class": "crack",
-      "confidence": 0.87,
-      "bbox": [x1, y1, x2, y2]
-    },
-    {
-      "model": "gdino",
-      "class": "rust stain",
-      "confidence": 0.73,
-      "bbox": [x1, y1, x2, y2]
-    }
-  ]
+  "yolo_detections":  [ { "class": "crack", "conf": 0.87, "box": [x1, y1, x2, y2] } ],
+  "gdino_detections": [ { "phrase": "rust stain", "conf": 0.73, "box": [x1, y1, x2, y2] } ]
 }
 ```
 
----
+**Outgoing (GCS → Jetson):**
+```json
+{ "type": "query", "query": "crack", "classes": ["thin line in concrete", "fracture in wall", "..."] }
+```
 
 #### `WS /ws/dashboard`
-Pushes live processed data to the Streamlit dashboard.
+Push channel for LLM report cards. The dashboard also polls REST endpoints, so this is supplementary rather than required.
 
-**Outgoing push schema:**
+### HTTP
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/` | Liveness string |
+| `GET` | `/health` | Full status: DB, drone link, LLM reachability, breaker state, uptime |
+| `GET` | `/video_feed` | MJPEG stream — SAM-annotated frame when available, raw frame otherwise |
+| `GET` | `/frame/latest` | Single JPEG snapshot |
+| `GET` | `/detections/latest?limit=` | Fully-processed detections, newest first |
+| `GET` | `/api/detections?limit=&class_name=&severity=` | Filtered detections (comma-separated filters) |
+| `GET` | `/detections/llm_reports/latest?seconds=&limit=` | Detections whose report landed recently |
+| `POST` | `/query` | Expand a free-text query and forward it to the Jetson |
+| `GET` | `/query/current` | Currently active class list |
+| `POST` | `/api/segment` | Ad-hoc: one frame + one box + altitude → area in cm² |
+| `GET` | `/api/similar/{id}` | Top-3 visually similar past detections by DINOv2 cosine similarity |
+| `GET` | `/api/site_health` | Overall site score 0–100 with severity breakdown |
+| `GET` | `/api/report/{id}` | LLM report for one detection |
+| `GET` | `/api/report/pdf?severity=&class_name=&limit=` | Full inspection report as PDF |
+| `GET` | `/api/session` | Current session ID and active table |
+| `GET` | `/api/gcs/status` | Live link stats: FPS, frame and detection counts, last GPS |
+| — | `/frames/*` | Static mount serving SAM-annotated stills |
+
+Interactive docs are served at `/docs` while the backend is running.
+
+**`GET /health`**
 ```json
 {
-  "type": "detection",
-  "detection_id": "uuid-string",
-  "timestamp": 1718000000.456,
-  "gps": { "lat": 12.9716, "lon": 77.5946 },
-  "class": "crack",
-  "severity": "L2",
-  "area_cm2": 214.7,
-  "anomaly_score": 0.76,
-  "annotated_frame_url": "/video_feed"
-}
-```
-
----
-
-### HTTP Endpoints
-
-#### `POST /query`
-Forwards a text query from the dashboard to the Jetson, updating Grounding DINO's active prompts at runtime.
-
-**Request:**
-```json
-{
-  "query": "rust stain . exposed rebar . white salt deposits"
-}
-```
-**Response:**
-```json
-{
-  "status": "forwarded",
-  "active_queries": ["rust stain", "exposed rebar", "white salt deposits"]
-}
-```
-
----
-
-#### `GET /detections`
-Returns all stored detections as GeoJSON.
-
-**Response:** `GeoJSON FeatureCollection` — each feature has `geometry.coordinates` (lon, lat) and `properties` (class, severity, area_cm2, timestamp, anomaly_score).
-
----
-
-#### `GET /detections/latest`
-Returns detections from the last 5 seconds. Used by Streamlit for polling-based live updates.
-
-**Response:** Same schema as `/detections`, filtered to `timestamp > now - 5s`.
-
----
-
-#### `GET /video_feed`
-MJPEG stream of the latest annotated frame from the Jetson.
-
-**Content-Type:** `multipart/x-mixed-replace; boundary=frame`
-
----
-
-#### `GET /report/pdf`
-Generates and streams a PDF inspection report from all PostGIS detections, sorted by severity descending.
-
-**Response:** `application/pdf` — multi-page report with defect cards, annotated frames, Folium map screenshot, and severity summary table.
-
----
-
-#### `GET /health`
-```json
-{
-  "status": "ok",
-  "uptime_s": 3612.4,
-  "drone_connected": true,
+  "ok": true,
+  "uptime_s": 437.8,
+  "session_id": "20260826_232608",
   "db_connected": true,
-  "detections_total": 142
+  "drone_connected": false,
+  "detections_total": 10,
+  "frames_received": 10,
+  "llm": {
+    "model": "gemma3:4b",
+    "reachable": true,
+    "breaker": { "open": false, "consecutive_fails": 0, "cooldown_s": 120.0 }
+  },
+  "gs_yolo_enabled": false
 }
 ```
 
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| **Edge Device** | NVIDIA Jetson Orin Nano 8GB (40 TOPS) |
-| **Camera** | Raspberry Pi IMX477 / IMX708 · MIPI CSI-2 · GStreamer |
-| **GPS** | u-blox NEO-M8N · MAVLink v2 via pymavlink · 10 Hz |
-| **Flight Controller** | Pixhawk 6C · ArduPilot |
-| **Backend** | FastAPI 0.115 · Uvicorn · asyncpg · WebSockets |
-| **Segmentation** | SAM 3 Small (~400MB) |
-| **Anomaly Detection** | DINOv2-B/14 via timm (768-dim embeddings, cosine similarity) |
-| **LLM Pipeline** | Ollama · Gemma-3 12B · LangChain 0.3 · Pydantic |
-| **Database** | PostgreSQL 16 + PostGIS 3.4 · Docker · GIST spatial index (EPSG:4326) |
-| **Dashboard** | Streamlit 1.38 · Folium 0.17 · Plotly 5.24 |
-| **PDF Generation** | WeasyPrint 62 |
-| **Model Training** | Ultralytics · Google Colab |
+`/health` always returns 200 so a monitor can tell "backend unreachable" apart from "backend up, one dependency degraded" — the individual flags carry that distinction.
 
 ---
 
@@ -420,35 +501,58 @@ Generates and streams a PDF inspection report from all PostGIS detections, sorte
 
 ```
 hawk-i/
-├── backend/
-│   ├── main.py               # FastAPI app, WebSocket endpoints, MJPEG stream
-│   ├── sam3_worker.py        # SAM 3 inference, mask extraction, area calculation
-│   ├── dinov2_worker.py      # DINOv2 embeddings, baseline comparison, anomaly scoring
-│   ├── llm_worker.py         # Gemma-3 LangChain pipeline, report generation
-│   ├── database.py           # asyncpg connection pool, PostGIS CRUD
-│   ├── report_gen.py         # WeasyPrint PDF generation
-│   ├── video_stream.py       # MJPEG feed endpoint
-│   └── models.py             # Pydantic schemas
-├── dashboard/
-│   ├── app.py                # Streamlit dashboard
-│   ├── map_utils.py          # Folium map builder and pin rendering
-│   └── report_template.html  # HTML/CSS template for PDF reports
-├── data/
-│   ├── frames/               # Saved annotated images from missions
-│   ├── reports/              # Generated PDF reports
-│   └── demo_detections.json  # Pre-recorded data for offline demo mode
-├── scripts/                  # Utility scripts
-├── tests/                    # Test files and mock drone senders
+├── backend/                        # Ground control station service
+│   ├── config.py                   # ⭐ Single source of truth for all settings
+│   ├── main.py                     # FastAPI app, WebSockets, REST, MJPEG
+│   ├── schemas.py                  # Pydantic request/response models
+│   ├── database.py                 # asyncpg + PostGIS, session-isolated tables
+│   ├── processing_worker.py        # Per-frame pipeline orchestration
+│   ├── sam2_segmenter.py           # SAM 2.1 wrapper, lazy load, health check
+│   ├── sam3_worker.py              # Batched segmentation + mask overlay (SAM 2.1)
+│   ├── dinov2_embedder.py          # Embeddings, centroid & peer verification
+│   ├── llm_worker.py               # Ollama access + circuit breaker + batch sweep
+│   ├── llm_reporter.py             # Per-detection and mission-summary reports
+│   ├── pdf_generator.py            # ReportLab inspection report
+│   └── video_stream.py             # In-memory frame store for the live feed
 │
-├── hawki_YOLOv11n_Training.ipynb   # Model training notebook
-├── hawki_yolo11n.pt                # Trained YOLO weights
-├── jetson_client.py                # Jetson-side WebSocket streaming client
-├── gcs_client.py                   # GCS-side client utilities
-├── config.py                       # Central configuration
-├── docker-compose.yml              # PostgreSQL + PostGIS setup
+├── edge/                           # Jetson-side code
+│   ├── config.py                   # CLI + .env config for the drone client
+│   ├── jetson_client.py            # Capture → inference → WebSocket stream
+│   └── multi_query_yoloworld.py    # ⭐ QUERY_MAP + expansion (shared with backend)
+│
+├── dashboard/
+│   ├── app.py                      # Streamlit ops centre
+│   └── utils.py                    # CSS, cards, severity palette
+│
+├── scripts/                        # Field and diagnostic tooling
+│   ├── preflight_check.py          # Pre-flight validator (.env, GCS, WS, DB)
+│   ├── check_connections.sh        # Same checks from bash
+│   ├── run_batch.py                # ⭐ Run a folder of stills through the pipeline
+│   ├── fetch_real_frames.py        # ⭐ Build a licensed real-defect corpus
+│   ├── fake_jetson.py              # Drone simulator — streams to a live backend
+│   ├── jetson_test_sender.py       # Bare-Python WS stress test (no deps)
+│   ├── test_connection.py          # Two-check Jetson ↔ GCS connectivity test
+│   └── standalone_receiver.py      # Minimal OpenCV viewer, no backend needed
+│
+├── tests/
+│   ├── run_all.py                  # Runs every suite, one verdict
+│   ├── test_geometry.py            # GSD / area / severity maths — no deps
+│   ├── test_multi_query.py         # Class normalisation + expansion + NMS
+│   ├── test_llm_worker.py          # Circuit breaker, parsing, fallback
+│   └── test_fake_drone.py          # End-to-end integration against a live stack
+│
+├── models/                         # Weights (only the 5 MB YOLOv11n is committed)
+├── data/                           # Frames, demo payloads, test images
+├── notebooks/                      # YOLOv11n training notebook
+├── docs/                           # PRD, presentation, multi-query design note
+│
+├── run.py                          # Backend entry point
+├── docker-compose.yml              # PostgreSQL 16 + PostGIS 3.4
 ├── requirements.txt
-└── .env.example
+└── .env.example                    # Every setting, documented
 ```
+
+⭐ marks the two files that centralise something previously duplicated: `backend/config.py` holds every tunable, and `edge/multi_query_yoloworld.py` owns the one copy of `QUERY_MAP`.
 
 ---
 
@@ -457,54 +561,180 @@ hawk-i/
 ### Prerequisites
 
 - Python 3.10+
-- Docker & Docker Compose
-- NVIDIA GPU on the GCS machine (for SAM 3 and DINOv2)
-- Ollama with Gemma-3 pulled: `ollama pull gemma3:12b`
-- *(For edge deployment)* NVIDIA Jetson Orin Nano with JetPack 6.0+
+- Docker & Docker Compose (for PostGIS)
+- NVIDIA GPU on the GCS for SAM 2 and DINOv2 (CPU works but is slow)
+- [Ollama](https://ollama.com/download) with `ollama pull gemma3:4b`
+- *(Edge only)* Jetson Orin Nano with JetPack 6.0+
 
 ### Setup
 
 ```bash
 git clone https://github.com/Arvoxis/hawk-i.git
 cd hawk-i
-
-pip install -r requirements.txt
-
-cp .env.example .env
-# Fill in DB credentials, camera ports, GPS port, and severity thresholds
-
-docker-compose up -d             # Start PostGIS database
-python run.py                    # Start FastAPI backend
-streamlit run dashboard/app.py   # Launch dashboard
 ```
-
-### Simulate Drone Feed (no hardware)
 
 ```bash
-python test_fake_drone.py
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
-Replays `data/demo_detections.json` over WebSocket, triggering the full GCS pipeline — SAM 3, DINOv2, LLM reports, and PDF export — without any physical hardware.
+```bash
+pip install -r requirements.txt
+```
 
-### Environment Variables
+SAM 2 is not on PyPI — install it from source and fetch the checkpoint:
 
-| Variable | Description | Default |
+```bash
+git clone https://github.com/facebookresearch/sam2 && cd sam2 && pip install -e . && cd ..
+```
+
+```bash
+curl -L -o models/sam2.1_hiera_small.pt https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt
+```
+
+Configure, then confirm the settings resolved as you expect:
+
+```bash
+cp .env.example .env
+```
+
+```bash
+python backend/config.py
+```
+
+### Run
+
+```bash
+docker compose up -d
+```
+
+```bash
+python run.py
+```
+
+```bash
+streamlit run dashboard/app.py
+```
+
+Backend on `http://localhost:8000` (docs at `/docs`), dashboard on `http://localhost:8501`.
+
+### Fly without hardware
+
+Before every real flight, validate the link:
+
+```bash
+python scripts/preflight_check.py
+```
+
+To exercise the whole pipeline with no drone attached:
+
+```bash
+python scripts/fake_jetson.py
+```
+
+This streams frames and detections to `/ws/drone` exactly as the Jetson would, driving SAM 2, DINOv2, the LLM reports, and PDF export end to end.
+
+---
+
+## Configuration
+
+Every setting is read once by `backend/config.py` from `.env`. Nothing else calls `os.getenv`, so `python backend/config.py` prints the effective configuration of the whole system.
+
+The settings most worth knowing:
+
+| Variable | Default | Why it matters |
 |---|---|---|
-| `DB_HOST` | PostgreSQL host | `localhost` |
-| `DB_PORT` | PostgreSQL port | `5432` |
-| `DB_NAME` | Database name | `hawki` |
-| `DB_USER` / `DB_PASSWORD` | Database credentials | — |
-| `JETSON_WS_PORT` | WebSocket port for drone | `8765` |
-| `OLLAMA_BASE_URL` | Ollama server endpoint | `http://localhost:11434` |
-| `ANOMALY_THRESHOLD` | DINOv2 cosine sim floor | `0.82` |
-| `LLM_BATCH_INTERVAL` | Report generation interval (s) | `30` |
-| `LLM_CONF_THRESHOLD` | Min confidence for LLM batch | `0.60` |
+| `GCS_HOST` / `GCS_PORT` | `localhost` / `8000` | Backend address. The dashboard and Jetson both resolve it from here |
+| `CAMERA_SENSOR_WIDTH_MM` | `6.287` | **Determines every reported area.** Set it to your actual camera |
+| `CAMERA_FOCAL_MM` | `4.74` | Same — the two together define the GSD |
+| `SEVERITY_L2_CM2` / `L3_CM2` | `100` / `500` | Severity bands; retune per flight altitude |
+| `MIN_DETECTION_CONF` | `0.45` | Confidence floor to enter the pipeline at all |
+| `LLM_CONF_THRESHOLD` | `0.60` | Confidence floor to earn an LLM report |
+| `LLM_MODEL` | `gemma3:4b` | Any Ollama model that can follow a JSON schema |
+| `OLLAMA_NUM_GPU` | unset | Set to `0` to force CPU inference — see below |
+| `GS_YOLO_ENABLED` | `0` | Run YOLOv11n on the GCS too, for camera-only payloads |
+| `HAWKI_MODELS_DIR` | `./models` | Relocate weights without touching code |
+| `HAWKI_PDF_FONT` | auto-detected | Path to a Unicode TTF for the PDF — see below |
+| `LLM_TIMEOUT_S` | `30` | Raise to 120+ when running the LLM on CPU |
+
+**If Ollama fails with `CUDA error: device kernel image is invalid`,** the host NVIDIA driver is older than the CUDA kernels Ollama ships. Either update the driver, or set `OLLAMA_NUM_GPU=0` in `.env` to run the LLM on CPU. Vision models are unaffected — PyTorch has its own bundled CUDA runtime and keeps using the GPU. On CPU a report takes 10–30 s rather than 2–4 s, so raise `LLM_TIMEOUT_S` to 120 or more or reports will fall back to the rule-based template under load.
+
+**PDF symbols.** ReportLab's built-in Helvetica is Latin-1 only, so the rupee
+sign renders as an empty box — unhelpful in a report whose purpose is quoting
+Indian repair costs. The generator looks for a Unicode TTF (DejaVuSans,
+including the copy matplotlib bundles) and uses it when found; otherwise it
+transliterates (`₹` → `INR`) so the report stays correct, just plainer. Point
+`HAWKI_PDF_FONT` at a `.ttf` to be explicit.
+
+---
+
+## Testing
+
+One command runs every suite that needs nothing running — no GPU, no
+database, no model weights, no network:
+
+```bash
+python tests/run_all.py
+```
+
+That covers the geometry maths, class normalisation and query expansion, and
+the LLM resilience layer (circuit breaker, response parsing, fallback) — 72
+tests, a few seconds, CI-safe.
+
+Add the end-to-end suite once the stack is up (`docker compose up -d`,
+`python run.py`):
+
+```bash
+python tests/run_all.py --all
+```
+
+The integration suite sends five synthetic frames and asserts twelve
+properties end to end — database reachability, LLM reachability, WebSocket delivery, that every frame completes processing, non-zero measured areas, report population, embedding presence, similarity-endpoint shape, site-health range, and that the exported PDF is structurally valid. It exits non-zero if any check fails, so it works in CI.
+
+---
+
+## Verified Environment
+
+The pipeline was last run end to end on this configuration, with all 12 integration checks and 36 unit tests passing:
+
+| Component | Version |
+|---|---|
+| OS | Windows 11 |
+| Python | 3.10.11 |
+| PyTorch | 2.5.1+cu121 |
+| GPU | RTX 3050 6 GB Laptop (driver 546.18) |
+| SAM 2 | 1.0 (from source) |
+| Ultralytics | 8.4.35 |
+| FastAPI / Uvicorn | 0.135.3 / 0.44.0 |
+| Streamlit | 1.56.0 |
+| PostgreSQL + PostGIS | 16 + 3.4 (Docker) |
+| Ollama | 0.32.15, `gemma3:4b` (CPU — see below) |
+
+On this host Ollama could not use the GPU: driver 546.18 predates the CUDA kernels Ollama 0.32.15 ships, and GPU inference aborts with `device kernel image is invalid`. The LLM therefore runs on CPU via `OLLAMA_NUM_GPU=0`, at roughly 10–12 s per report. PyTorch is unaffected and uses the GPU normally.
+
+---
+
+## Known Limitations
+
+Honest notes for anyone extending this.
+
+1. **Severity thresholds interact with flight altitude.** At 12.5 m with a 1280 px frame the GSD is ~1.3 cm/px, so the L2 boundary (100 cm²) is crossed by a region of roughly 60 px — about 8 × 8 pixels. Fly higher and near-everything reads as critical; fly lower and the bands spread out. The thresholds are calibrated for a specific standoff distance and should be retuned per mission profile, which is why they are in `.env`.
+
+2. **A hairline crack is below the sensor's resolving power at altitude.** At 10 m, one pixel covers ~7 mm. Sub-millimetre crack width cannot be measured from that standoff regardless of the model; the pipeline measures the *extent* of a defect region, not crack width.
+
+3. **`transformers` is a hard requirement for offline operation.** Without it DINOv2 falls back to `torch.hub`, which downloads ~330 MB from GitHub and Meta's CDN on first use — which defeats the offline guarantee in the field. Install it before the first flight and confirm the model is cached.
+
+4. **The LLM is the throughput bottleneck.** Vision runs in well under a second per frame; a Gemma 3 report takes seconds. Reports are generated per detection above `LLM_CONF_THRESHOLD`, so a dense frame is slow. The circuit breaker prevents a *failing* LLM from stalling the pipeline, but a *slow* one still gates throughput.
+
+5. **The 30-second batch sweep and the per-detection reporter overlap.** The sweep now only fills rows with no report, so it can no longer overwrite the richer per-detection version — but the two paths still produce differently-shaped prose for the same defect class.
+
+6. **`gdino_detections` and `sam3_worker` are misleading names.** See [AI Model Stack](#ai-model-stack). Renaming them means a coordinated change to the Jetson payload format, which has not been done.
 
 ---
 
 ## Documentation
 
-- [Product Requirements Document](./Hawk-I_PRD_v1.0.docx)
+- [Product Requirements Document](docs/Hawk-I_PRD_v1.0.docx)
+- [Multi-Query YOLO-World design note](docs/MULTI_QUERY.md)
 
 ---
 

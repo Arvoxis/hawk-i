@@ -16,21 +16,19 @@ import cv2
 import numpy as np
 import torch
 
+import config
+
 logger = logging.getLogger(__name__)
 
-# ── Camera / GSD constants ────────────────────────────────────────────────────
-_SENSOR_W_MM   = 6.287
-_FOCAL_MM      = 4.74
-_IMG_W_PX      = 1920
-_DEFAULT_ALT_M = 10.0
-_MIN_ALT_M     = 2.0    # altitudes below this are treated as bad GPS
+# Camera intrinsics, severity thresholds and the mask-quality gate all live in
+# backend/config.py.  Importing them keeps this worker in step with the
+# /api/segment endpoint, which used to disagree with it by a factor of 100.
+_MASK_QUALITY_THRESHOLD = config.SAM_MASK_QUALITY_THRESHOLD
 
-# ── Severity thresholds (area-based) ─────────────────────────────────────────
-_L3_CM2 = 500.0
-_L2_CM2 = 100.0
-
-# ── Mask quality gate — below this IoU score, fall back to bbox area ─────────
-_MASK_QUALITY_THRESHOLD = 0.75
+# Mask tint strength.  Low enough that concrete texture, crack edges and
+# rust staining all remain visible through the overlay -- an inspector has to
+# be able to judge the defect, not just see that something was highlighted.
+_MASK_ALPHA = 0.28
 
 # ── Overlay colours (BGR tuples) ──────────────────────────────────────────────
 _SEV_BGR = {
@@ -56,32 +54,23 @@ def _get_segmenter():
 def _resolve_altitude(gps: dict) -> float:
     """Return a safe altitude value, warning if the raw value is bad."""
     raw = (gps or {}).get("alt_m")
-    try:
-        alt = float(raw)
-    except (TypeError, ValueError):
-        alt = 0.0
-
-    if raw is None or alt < _MIN_ALT_M:
+    alt, substituted = config.resolve_altitude(raw)
+    if substituted:
         logger.warning(
             "alt_m=%s is null or <%.1f m — GSD calculation unreliable, "
             "using default %.1f m",
-            raw, _MIN_ALT_M, _DEFAULT_ALT_M,
+            raw, config.MIN_ALT_M, config.DEFAULT_ALT_M,
         )
-        return _DEFAULT_ALT_M
     return alt
 
 
-def _gsd_cm_per_px(alt_m: float, img_w_px: int = _IMG_W_PX) -> float:
+def _gsd_cm_per_px(alt_m: float, img_w_px: int = config.CAMERA_IMAGE_WIDTH_PX) -> float:
     """Ground Sampling Distance in cm/px. Pass the actual decoded frame width."""
-    return (alt_m * _SENSOR_W_MM) / (_FOCAL_MM * img_w_px) * 10
+    return config.gsd_cm_per_px(alt_m, img_w_px)
 
 
 def _classify(area_cm2: float) -> str:
-    if area_cm2 >= _L3_CM2:
-        return "L3"
-    if area_cm2 >= _L2_CM2:
-        return "L2"
-    return "L1"
+    return config.classify_severity(area_cm2)
 
 
 def _draw_detection(
@@ -95,21 +84,36 @@ def _draw_detection(
 ) -> None:
     """Draw mask overlay + bounding box + label on a BGR canvas in-place.
 
-    Blend strategy:
-        overlay = zeros the same shape as canvas_bgr
-        overlay[mask] = severity colour
-        canvas_bgr = addWeighted(canvas_bgr, 0.6, overlay, 0.4, 0)
+    Blend strategy: tint only the masked pixels, and trace the mask boundary.
 
-    Non-mask pixels: canvas unchanged (0.6 * canvas + 0.4 * 0 = 0.6 * canvas).
-    Mask pixels: 0.6 * original + 0.4 * colour → clearly tinted, not washed out.
+    The previous implementation ran addWeighted over the *entire* canvas, so
+    every pixel outside the mask was multiplied by 0.6 as well -- the whole
+    photograph was dimmed to 60% brightness, and at 0.4 alpha the masked
+    region became a flat colour wash. On real imagery the result was a
+    near-uniform red rectangle in which the defect could not be seen at all,
+    which defeats the purpose of an annotated frame an engineer has to read.
+
+    Now: masked pixels get a light tint that the texture still shows through,
+    the boundary is drawn as a crisp contour so the measured extent is legible,
+    and unmasked pixels are left exactly as captured.
     """
     bgr_col = _SEV_BGR[severity]
 
     if mask is not None and mask.any():
-        overlay = np.zeros_like(canvas_bgr)
-        overlay[mask] = bgr_col
-        # safe in-place: addWeighted reads src1 before writing dst
-        cv2.addWeighted(canvas_bgr, 0.6, overlay, 0.4, 0, canvas_bgr)
+        idx = mask.astype(bool)
+        tint = np.array(bgr_col, dtype=np.float32)
+        canvas_bgr[idx] = (
+            canvas_bgr[idx].astype(np.float32) * (1.0 - _MASK_ALPHA)
+            + tint * _MASK_ALPHA
+        ).astype(np.uint8)
+
+        # Trace the measured region so its true extent is readable even where
+        # the tint is subtle.
+        contours, _ = cv2.findContours(
+            mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        if contours:
+            cv2.drawContours(canvas_bgr, contours, -1, bgr_col, 2, cv2.LINE_AA)
     else:
         logger.warning(
             "_draw_detection: mask is empty for %s — no colour overlay drawn", class_name

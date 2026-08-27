@@ -13,16 +13,14 @@ Usage:
 import httpx
 import json
 import logging
-import os
 from typing import Optional
 
-from dotenv import load_dotenv
-load_dotenv()
+import config
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_URL = f"http://{os.getenv('OLLAMA_HOST', 'localhost')}:{os.getenv('OLLAMA_PORT', '11434')}/api/generate"
-MODEL_NAME = "gemma3:4b"
+OLLAMA_URL = config.OLLAMA_GENERATE_URL
+MODEL_NAME = config.LLM_MODEL
 
 SYSTEM_PROMPT = """You are an expert infrastructure inspector analyzing drone-captured defect data.
 Given detection details, produce a concise inspection report in EXACTLY this format:
@@ -62,7 +60,7 @@ class LLMReporter:
         self,
         ollama_url: str = OLLAMA_URL,
         model: str = MODEL_NAME,
-        timeout: float = 30.0,
+        timeout: float = config.LLM_TIMEOUT_S,
     ):
         self.ollama_url = ollama_url
         self.model = model
@@ -97,10 +95,9 @@ class LLMReporter:
                         "prompt": prompt,
                         "system": SYSTEM_PROMPT,
                         "stream": False,
-                        "options": {
-                            "temperature": 0.3,
-                            "num_predict": 300,
-                        },
+                        "options": config.ollama_options(
+                            temperature=0.3, num_predict=300,
+                        ),
                     },
                 )
                 response.raise_for_status()
@@ -317,7 +314,7 @@ class LLMReporter:
                         "prompt":  prompt,
                         "system":  _BATCH_SYSTEM,
                         "stream":  False,
-                        "options": {"temperature": 0.2, "num_predict": 256},
+                        "options": config.ollama_options(),
                     },
                 )
                 response.raise_for_status()
@@ -335,7 +332,7 @@ class LLMReporter:
         """Check if Ollama is running and model is available."""
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"http://{os.getenv('OLLAMA_HOST', 'localhost')}:{os.getenv('OLLAMA_PORT', '11434')}/api/tags")
+                resp = await client.get(config.OLLAMA_TAGS_URL)
                 resp.raise_for_status()
                 models = [m["name"] for m in resp.json().get("models", [])]
                 available = any(self.model.split(":")[0] in m for m in models)

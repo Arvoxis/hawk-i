@@ -1,28 +1,24 @@
-import sys, os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 import asyncpg
 import logging
 from datetime import datetime as _datetime
-from dotenv import load_dotenv
 
-load_dotenv()
+import config
 
 logger = logging.getLogger(__name__)
 
-DB_CONFIG = {
-    "host":     os.getenv("DB_HOST", "localhost"),
-    "port":     int(os.getenv("DB_PORT", 5432)),
-    "database": os.getenv("DB_NAME", "hawki_db"),
-    "user":     os.getenv("DB_USER", "hawki_user"),
-    "password": os.getenv("DB_PASSWORD", "hawki"),
-}
+DB_CONFIG = config.DB_CONFIG
 
 # ── Session identity ──────────────────────────────────────────
 # Each process start gets its own timestamp-based table so sessions
 # are isolated and historical data is never overwritten.
 _SESSION_ID  = _datetime.now().strftime("%Y%m%d_%H%M%S")
 CURRENT_TABLE = f"detections_{_SESSION_ID}"
+
+# Persistent across sessions, unlike CURRENT_TABLE.  This is what makes
+# "has this defect been seen before, and has it grown?" answerable at all:
+# session tables are per-process, so a lookup scoped to one could only ever
+# find defects from the same flight.
+EMBEDDING_TABLE = "defect_embeddings"
 
 # Global connection pool
 pool = None
@@ -79,8 +75,113 @@ async def init_db():
             except Exception:
                 pass
 
-    logger.info(f"Session table created: {CURRENT_TABLE}")
-    print(f"✓ Database connected  |  session table: {CURRENT_TABLE}")
+    await _init_embedding_archive()
+
+    logger.info("Database connected | session table: %s", CURRENT_TABLE)
+
+
+async def _init_embedding_archive() -> None:
+    """Create the cross-session embedding archive if it does not exist."""
+    async with pool.acquire() as conn:
+        await conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS {EMBEDDING_TABLE} (
+                id           BIGSERIAL PRIMARY KEY,
+                session_id   TEXT             NOT NULL,
+                detection_id INTEGER          NOT NULL,
+                class_name   TEXT             NOT NULL,
+                embedding    BYTEA            NOT NULL,
+                area_cm2     REAL             DEFAULT 0.0,
+                severity     TEXT,
+                confidence   REAL             DEFAULT 0.0,
+                lat          DOUBLE PRECISION DEFAULT 0.0,
+                lon          DOUBLE PRECISION DEFAULT 0.0,
+                detected_at  TIMESTAMPTZ      DEFAULT NOW(),
+                UNIQUE (session_id, detection_id)
+            )
+        """)
+        # Class is the only filter every lookup applies.
+        await conn.execute(f"""
+            CREATE INDEX IF NOT EXISTS {EMBEDDING_TABLE}_class_idx
+                ON {EMBEDDING_TABLE} (class_name, detected_at DESC)
+        """)
+    async with pool.acquire() as conn:
+        total = await conn.fetchval(f"SELECT COUNT(*) FROM {EMBEDDING_TABLE}")
+        classes = await conn.fetchval(
+            f"SELECT COUNT(DISTINCT class_name) FROM {EMBEDDING_TABLE}")
+    logger.info(
+        "Embedding archive ready: %d embedding(s) across %d class(es) from "
+        "previous inspections", int(total or 0), int(classes or 0),
+    )
+
+
+async def archive_embedding(
+    detection_id: int,
+    class_name: str,
+    embedding_bytes: bytes,
+    area_cm2: float,
+    severity: str | None,
+    confidence: float,
+    lat: float,
+    lon: float,
+) -> None:
+    """Copy one detection's embedding into the cross-session archive."""
+    async with pool.acquire() as conn:
+        await conn.execute(f"""
+            INSERT INTO {EMBEDDING_TABLE}
+                (session_id, detection_id, class_name, embedding,
+                 area_cm2, severity, confidence, lat, lon)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (session_id, detection_id) DO UPDATE
+                SET embedding = EXCLUDED.embedding,
+                    area_cm2  = EXCLUDED.area_cm2,
+                    severity  = EXCLUDED.severity
+        """, _SESSION_ID, detection_id, class_name, embedding_bytes,
+            area_cm2, severity, confidence, lat, lon)
+
+
+async def fetch_archived_embeddings(
+    class_name: str,
+    limit: int = 2000,
+    exclude_current_session: bool = False,
+) -> list[dict]:
+    """Return archived embeddings for one defect class, newest first."""
+    guard = " AND session_id <> $2" if exclude_current_session else ""
+    params: list = [class_name]
+    if exclude_current_session:
+        params.append(_SESSION_ID)
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(f"""
+            SELECT id, session_id, detection_id, embedding, area_cm2,
+                   severity, lat, lon, detected_at
+              FROM {EMBEDDING_TABLE}
+             WHERE class_name = $1{guard}
+             ORDER BY detected_at DESC
+             LIMIT {int(limit)}
+        """, *params)
+        return [dict(r) for r in rows]
+
+
+async def archive_stats() -> dict:
+    """Summary of the archive, for /health and diagnostics."""
+    if pool is None:
+        return {"available": False}
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(f"""
+                SELECT COUNT(*) AS total,
+                       COUNT(DISTINCT class_name) AS classes,
+                       COUNT(DISTINCT session_id) AS sessions
+                  FROM {EMBEDDING_TABLE}
+            """)
+        return {
+            "available": True,
+            "embeddings": int(row["total"] or 0),
+            "classes":    int(row["classes"] or 0),
+            "sessions":   int(row["sessions"] or 0),
+        }
+    except Exception:
+        return {"available": False}
 
 
 async def save_detection_raw(
@@ -183,15 +284,34 @@ async def update_detection_sam(
     logger.debug(f"SAM3 updated row {det_id}: {area_cm2:.1f} cm² sev={severity or '—'}")
 
 
-async def update_detection_report(det_id: int, report: str):
-    """Save the LLM-generated inspection report for a detection row."""
+async def update_detection_report(
+    det_id: int,
+    report: str,
+    only_if_empty: bool = False,
+):
+    """Save the LLM-generated inspection report for a detection row.
+
+    ``only_if_empty`` is used by the periodic batch sweep so it can fill gaps
+    without clobbering the richer per-detection report that the processing
+    worker writes (that one carries DINOv2 and similar-defect context).
+    """
+    guard = " AND llm_report IS NULL" if only_if_empty else ""
     async with pool.acquire() as conn:
         await conn.execute(f"""
             UPDATE {CURRENT_TABLE}
                SET llm_report = $2
-             WHERE id = $1
+             WHERE id = $1{guard}
         """, det_id, report)
     logger.debug(f"LLM report saved for row {det_id}")
+
+
+async def count_missing_llm_reports() -> int:
+    """Number of processed detections still waiting for a report."""
+    async with pool.acquire() as conn:
+        return int(await conn.fetchval(f"""
+            SELECT COUNT(*) FROM {CURRENT_TABLE}
+             WHERE severity IS NOT NULL AND llm_report IS NULL
+        """) or 0)
 
 
 async def get_detection_report(det_id: int) -> dict | None:
@@ -242,15 +362,21 @@ async def get_latest_detections(limit: int = 20) -> list[dict]:
 async def get_recent_detections_for_llm(
     seconds: int = 30,
     min_conf: float = 0.60,
+    only_missing_report: bool = False,
 ) -> list[dict]:
-    """Return detections from the last `seconds` seconds with confidence > min_conf."""
+    """Return recent detections above `min_conf` that are fully processed.
+
+    ``only_missing_report`` restricts the result to rows with no llm_report,
+    so the batch sweep never regenerates a report that already exists.
+    """
+    guard = " AND llm_report IS NULL" if only_missing_report else ""
     async with pool.acquire() as conn:
         rows = await conn.fetch(f"""
             SELECT id, class_name, confidence, severity, area_cm2, lat, lon, altitude_m
               FROM {CURRENT_TABLE}
              WHERE detected_at >= NOW() - INTERVAL '{seconds} seconds'
                AND confidence > $1
-               AND severity IS NOT NULL
+               AND severity IS NOT NULL{guard}
              ORDER BY detected_at DESC
         """, min_conf)
         return [dict(r) for r in rows]
@@ -315,31 +441,26 @@ async def get_detection_embedding(det_id: int) -> dict | None:
 
 
 async def get_severity_counts() -> dict:
-    """Return per-severity detection counts for the site health score."""
+    """Return per-severity detection counts for the site health score.
+
+    Bucketing happens in SQL.  The previous version grouped by the raw
+    confidence column, which produced one group per distinct float value and
+    made the query scale with the number of rows rather than the four buckets.
+    """
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
+        row = await conn.fetchrow(
             f"""
-            SELECT severity, confidence, COUNT(*) AS cnt
+            SELECT
+                COUNT(*)                                                       AS total,
+                COUNT(*) FILTER (WHERE severity = 'L3' AND confidence > 0.85)  AS critical,
+                COUNT(*) FILTER (WHERE severity = 'L3' AND confidence <= 0.85) AS high,
+                COUNT(*) FILTER (WHERE severity = 'L2')                        AS medium,
+                COUNT(*) FILTER (WHERE severity NOT IN ('L2', 'L3'))           AS low
               FROM {CURRENT_TABLE}
              WHERE severity IS NOT NULL
-             GROUP BY severity, confidence
             """
         )
-    counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "total": 0}
-    for row in rows:
-        sev = row["severity"]
-        cnt = int(row["cnt"])
-        conf = float(row["confidence"])
-        counts["total"] += cnt
-        if sev == "L3" and conf > 0.85:
-            counts["critical"] += cnt
-        elif sev == "L3":
-            counts["high"] += cnt
-        elif sev == "L2":
-            counts["medium"] += cnt
-        else:
-            counts["low"] += cnt
-    return counts
+    return {k: int(row[k] or 0) for k in ("total", "critical", "high", "medium", "low")}
 
 
 async def get_filtered_detections(
