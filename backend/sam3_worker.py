@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 # /api/segment endpoint, which used to disagree with it by a factor of 100.
 _MASK_QUALITY_THRESHOLD = config.SAM_MASK_QUALITY_THRESHOLD
 
+# Mask tint strength.  Low enough that concrete texture, crack edges and
+# rust staining all remain visible through the overlay -- an inspector has to
+# be able to judge the defect, not just see that something was highlighted.
+_MASK_ALPHA = 0.28
+
 # ── Overlay colours (BGR tuples) ──────────────────────────────────────────────
 _SEV_BGR = {
     "L1": (0,   200, 0),    # green
@@ -79,21 +84,36 @@ def _draw_detection(
 ) -> None:
     """Draw mask overlay + bounding box + label on a BGR canvas in-place.
 
-    Blend strategy:
-        overlay = zeros the same shape as canvas_bgr
-        overlay[mask] = severity colour
-        canvas_bgr = addWeighted(canvas_bgr, 0.6, overlay, 0.4, 0)
+    Blend strategy: tint only the masked pixels, and trace the mask boundary.
 
-    Non-mask pixels: canvas unchanged (0.6 * canvas + 0.4 * 0 = 0.6 * canvas).
-    Mask pixels: 0.6 * original + 0.4 * colour → clearly tinted, not washed out.
+    The previous implementation ran addWeighted over the *entire* canvas, so
+    every pixel outside the mask was multiplied by 0.6 as well -- the whole
+    photograph was dimmed to 60% brightness, and at 0.4 alpha the masked
+    region became a flat colour wash. On real imagery the result was a
+    near-uniform red rectangle in which the defect could not be seen at all,
+    which defeats the purpose of an annotated frame an engineer has to read.
+
+    Now: masked pixels get a light tint that the texture still shows through,
+    the boundary is drawn as a crisp contour so the measured extent is legible,
+    and unmasked pixels are left exactly as captured.
     """
     bgr_col = _SEV_BGR[severity]
 
     if mask is not None and mask.any():
-        overlay = np.zeros_like(canvas_bgr)
-        overlay[mask] = bgr_col
-        # safe in-place: addWeighted reads src1 before writing dst
-        cv2.addWeighted(canvas_bgr, 0.6, overlay, 0.4, 0, canvas_bgr)
+        idx = mask.astype(bool)
+        tint = np.array(bgr_col, dtype=np.float32)
+        canvas_bgr[idx] = (
+            canvas_bgr[idx].astype(np.float32) * (1.0 - _MASK_ALPHA)
+            + tint * _MASK_ALPHA
+        ).astype(np.uint8)
+
+        # Trace the measured region so its true extent is readable even where
+        # the tint is subtle.
+        contours, _ = cv2.findContours(
+            mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        if contours:
+            cv2.drawContours(canvas_bgr, contours, -1, bgr_col, 2, cv2.LINE_AA)
     else:
         logger.warning(
             "_draw_detection: mask is empty for %s — no colour overlay drawn", class_name
