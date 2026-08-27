@@ -37,7 +37,10 @@
 - [GCS Pipeline](#gcs-pipeline)
 - [AI Model Stack](#ai-model-stack)
 - [Area Measurement & Severity](#area-measurement--severity)
+- [Repeat Inspection & Defect Growth](#repeat-inspection--defect-growth)
 - [Defect Classes](#defect-classes)
+- [Running Without a Drone](#running-without-a-drone)
+- [Results on Real Imagery](#results-on-real-imagery)
 - [Degradation Behaviour](#degradation-behaviour)
 - [API Reference](#api-reference)
 - [Project Structure](#project-structure)
@@ -253,6 +256,58 @@ Two guards keep bad geometry from producing confident nonsense:
 
 ---
 
+## Repeat Inspection & Defect Growth
+
+A single flight tells you a structure has a 340 cm² crack. Two flights three
+months apart tell you whether it is spreading — which is the question that
+actually drives a repair budget.
+
+Every detection's DINOv2 embedding is written to a persistent
+`defect_embeddings` archive that outlives the per-session detection tables.
+When a new detection is embedded, it is matched against that archive:
+
+```mermaid
+flowchart LR
+    NEW["New detection<br/>768-d embedding"]
+    ARCH[("defect_embeddings<br/>all prior inspections")]
+    MATCH{"cosine similarity<br/>≥ 0.80 ?"}
+    SAME["Treated as the same<br/>physical defect"]
+    NEWDEF["Treated as a<br/>new defect"]
+    DELTA["Δ area vs last sighting<br/>→ GROWING / stable / reduced"]
+    PROMPT["Fed into the report prompt:<br/>urgency raised when growing"]
+
+    NEW --> MATCH
+    ARCH --> MATCH
+    MATCH -- yes --> SAME --> DELTA --> PROMPT
+    MATCH -- no --> NEWDEF
+```
+
+A match above 0.80 similarity from an earlier session is treated as the same
+defect seen again, and the report records the change:
+
+```
+Previously recorded 2026-05-14 at 118.0 cm² (similarity 0.87);
+now 341.2 cm² — +189%, GROWING
+```
+
+Anything beyond ±25% is called out as growing or reduced; a large *reduction*
+is flagged for manual check rather than celebrated, since the usual cause is a
+different viewing angle rather than self-healing concrete.
+
+This also repairs the class-centroid check. It needs five stored examples of a
+class before it will run, and a single flight rarely produces five of the same
+defect — scoped to one session, that check almost never fired. Against the
+archive it accumulates across flights.
+
+`GET /health` reports the archive size, so you can see how much history the
+verification stage is drawing on:
+
+```json
+"embedding_archive": { "available": true, "embeddings": 47, "classes": 5, "sessions": 6 }
+```
+
+---
+
 ## Defect Classes
 
 Trained on **1,680 annotated images** of Indian infrastructure defects:
@@ -267,6 +322,86 @@ Trained on **1,680 annotated images** of Indian infrastructure defects:
 | `Scaling` | Peeling / flaking of the surface layer | Surface deterioration, erosion |
 
 Two further classes — `Corrosion` and `Delamination` — exist in the open-vocabulary query map only. YOLO-World can be prompted for them at runtime; the fine-tuned YOLOv11n was not trained on them.
+
+---
+
+## Running Without a Drone
+
+The pipeline does not need a flying drone, or any drone. Three entry points,
+in increasing order of realism:
+
+| Tool | What it does |
+|---|---|
+| `scripts/fake_jetson.py` | Streams synthetic detections over the live WebSocket. Fastest smoke test. |
+| `scripts/run_batch.py` | Sends a **folder of real photographs** through the real ingest path. |
+| `scripts/fetch_real_frames.py` | Builds a corpus of genuine defect photographs to feed the above. |
+
+Batch mode is the useful one. Point it at archived inspection footage, a phone
+walk-around, or a downloaded corpus, and every image goes through the same
+WebSocket ingest, confidence gate, processing queue, segmentation, verification
+and reporting that a real flight uses:
+
+```bash
+python scripts/fetch_real_frames.py --per-class 4
+```
+
+```bash
+GS_YOLO_ENABLED=1 python run.py
+```
+
+```bash
+python scripts/run_batch.py --images data/real_frames --altitude 2.5 --report survey.pdf
+```
+
+Two flags matter more than they look:
+
+- **`--altitude`** is not cosmetic. Every reported cm² is derived from it, so a
+  close-range photograph tagged with a 10 m altitude will report areas roughly
+  16× too large. Set it to the real standoff distance of the imagery.
+- **`GS_YOLO_ENABLED=1`** on the backend. Batch frames carry no edge
+  detections, so the ground-station detector is what has to fire; without it
+  the run completes and finds nothing.
+
+The corpus fetcher draws from Wikimedia Commons rather than a general image
+search: every file carries an explicit licence, the URLs are stable, and much
+of the structural-survey material is US federal public domain (HAER/HABS bridge
+surveys). Licence and author for each file are written to
+`data/real_frames/MANIFEST.json`. The images themselves are gitignored — the
+script is the reproducible artefact, not the pixels.
+
+---
+
+## Results on Real Imagery
+
+Run on 11 genuine photographs of deteriorating concrete and steel (Wikimedia
+Commons, mostly HAER bridge surveys), at 2.5 m assumed standoff:
+
+| | |
+|---|---|
+| Frames in | 11 |
+| Detections | 7 across 4 classes |
+| Measured areas | 166 – 7 937 cm², spread across L2 and L3 |
+| Segmentation | SAM 2 produced a mask for every detection |
+| Verification | DINOv2 flagged 2 detections as probable false positives |
+| Reports | generated for every detection above threshold |
+
+What this establishes and what it does not:
+
+- **The pipeline is sound on real imagery.** Segmentation, area measurement,
+  verification and reporting all behave correctly on photographs that look
+  nothing like the training set.
+- **The detector is the weak link.** On these frames the fine-tuned YOLOv11n
+  fires at 0.26–0.65 confidence, and often on the wrong class — a photograph of
+  wall cracking came back as `Spalling`. That is consistent with its reported
+  mAP@0.5 of 0.45 on 1 680 training images. Most detections land *below* the
+  default 0.45 intake gate, so the default configuration finds almost nothing
+  in out-of-distribution imagery.
+- **The honest reading**: the surrounding system generalises; the detector does
+  not yet. More training data is the fix, not more pipeline.
+
+Reproduce with the two commands in
+[Running Without a Drone](#running-without-a-drone), adding
+`MIN_DETECTION_CONF=0.25` to see the sub-threshold detections.
 
 ---
 
@@ -392,14 +527,18 @@ hawk-i/
 ├── scripts/                        # Field and diagnostic tooling
 │   ├── preflight_check.py          # Pre-flight validator (.env, GCS, WS, DB)
 │   ├── check_connections.sh        # Same checks from bash
+│   ├── run_batch.py                # ⭐ Run a folder of stills through the pipeline
+│   ├── fetch_real_frames.py        # ⭐ Build a licensed real-defect corpus
 │   ├── fake_jetson.py              # Drone simulator — streams to a live backend
 │   ├── jetson_test_sender.py       # Bare-Python WS stress test (no deps)
 │   ├── test_connection.py          # Two-check Jetson ↔ GCS connectivity test
 │   └── standalone_receiver.py      # Minimal OpenCV viewer, no backend needed
 │
 ├── tests/
+│   ├── run_all.py                  # Runs every suite, one verdict
 │   ├── test_geometry.py            # GSD / area / severity maths — no deps
-│   ├── test_multi_query.py         # Query expansion + NMS — no GPU or model
+│   ├── test_multi_query.py         # Class normalisation + expansion + NMS
+│   ├── test_llm_worker.py          # Circuit breaker, parsing, fallback
 │   └── test_fake_drone.py          # End-to-end integration against a live stack
 │
 ├── models/                         # Weights (only the 5 MB YOLOv11n is committed)
@@ -514,30 +653,42 @@ The settings most worth knowing:
 | `OLLAMA_NUM_GPU` | unset | Set to `0` to force CPU inference — see below |
 | `GS_YOLO_ENABLED` | `0` | Run YOLOv11n on the GCS too, for camera-only payloads |
 | `HAWKI_MODELS_DIR` | `./models` | Relocate weights without touching code |
+| `HAWKI_PDF_FONT` | auto-detected | Path to a Unicode TTF for the PDF — see below |
+| `LLM_TIMEOUT_S` | `30` | Raise to 120+ when running the LLM on CPU |
 
-**If Ollama fails with `CUDA error: device kernel image is invalid`,** the host NVIDIA driver is older than the CUDA kernels Ollama ships. Either update the driver, or set `OLLAMA_NUM_GPU=0` in `.env` to run the LLM on CPU. Vision models are unaffected — PyTorch has its own bundled CUDA runtime and keeps using the GPU.
+**If Ollama fails with `CUDA error: device kernel image is invalid`,** the host NVIDIA driver is older than the CUDA kernels Ollama ships. Either update the driver, or set `OLLAMA_NUM_GPU=0` in `.env` to run the LLM on CPU. Vision models are unaffected — PyTorch has its own bundled CUDA runtime and keeps using the GPU. On CPU a report takes 10–30 s rather than 2–4 s, so raise `LLM_TIMEOUT_S` to 120 or more or reports will fall back to the rule-based template under load.
+
+**PDF symbols.** ReportLab's built-in Helvetica is Latin-1 only, so the rupee
+sign renders as an empty box — unhelpful in a report whose purpose is quoting
+Indian repair costs. The generator looks for a Unicode TTF (DejaVuSans,
+including the copy matplotlib bundles) and uses it when found; otherwise it
+transliterates (`₹` → `INR`) so the report stays correct, just plainer. Point
+`HAWKI_PDF_FONT` at a `.ttf` to be explicit.
 
 ---
 
 ## Testing
 
-Two suites need nothing running — no GPU, no database, no model files:
+One command runs every suite that needs nothing running — no GPU, no
+database, no model weights, no network:
 
 ```bash
-python tests/test_geometry.py
+python tests/run_all.py
 ```
+
+That covers the geometry maths, class normalisation and query expansion, and
+the LLM resilience layer (circuit breaker, response parsing, fallback) — 72
+tests, a few seconds, CI-safe.
+
+Add the end-to-end suite once the stack is up (`docker compose up -d`,
+`python run.py`):
 
 ```bash
-python tests/test_multi_query.py
+python tests/run_all.py --all
 ```
 
-The integration test needs the full stack up (`docker compose up -d`, `python run.py`):
-
-```bash
-python tests/test_fake_drone.py
-```
-
-It sends five synthetic frames and asserts twelve properties end to end — database reachability, LLM reachability, WebSocket delivery, that every frame completes processing, non-zero measured areas, report population, embedding presence, similarity-endpoint shape, site-health range, and that the exported PDF is structurally valid. It exits non-zero if any check fails, so it works in CI.
+The integration suite sends five synthetic frames and asserts twelve
+properties end to end — database reachability, LLM reachability, WebSocket delivery, that every frame completes processing, non-zero measured areas, report population, embedding presence, similarity-endpoint shape, site-health range, and that the exported PDF is structurally valid. It exits non-zero if any check fails, so it works in CI.
 
 ---
 

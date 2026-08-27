@@ -39,6 +39,13 @@ transformers>=4.44.0
 # libraries that are painful to ship on Windows GCS laptops.
 reportlab>=4.2.0
 
+# Optional, but recommended: matplotlib bundles DejaVuSans.ttf, which the PDF
+# generator picks up automatically. Without a Unicode font the rupee sign and
+# other symbols are transliterated (INR for the sign) rather than drawn.
+# Any DejaVuSans.ttf works -- point HAWKI_PDF_FONT at one instead if you have
+# it already and would rather not add this dependency.
+matplotlib>=3.7.0
+
 # ── Dashboard ─────────────────────────────────────────────────
 streamlit>=1.38.0
 streamlit-folium>=0.22.0
