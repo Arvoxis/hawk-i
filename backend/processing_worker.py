@@ -52,6 +52,54 @@ def _normalise_class(raw: str) -> str:
     return canonical_class(raw) or raw
 
 
+# A match this similar is treated as the same physical defect seen again,
+# rather than merely a defect that looks like it.
+_SAME_DEFECT_SIMILARITY = 0.80
+
+
+def _describe_growth(area_cm2: float, matches: list[dict]) -> tuple[str, dict | None]:
+    """Compare this defect against the closest match from an earlier flight.
+
+    Repeat inspection is the point of the archive: a 40 cm2 crack is routine,
+    the same crack at 400 cm2 three months later is not.  Returns a
+    human-readable note plus the structured comparison, or ("", None) when
+    there is no confident prior match.
+    """
+    prior = [m for m in matches
+             if not m.get("same_session")
+             and m.get("similarity_score", 0) >= _SAME_DEFECT_SIMILARITY]
+    if not prior or area_cm2 <= 0:
+        return "", None
+
+    best = max(prior, key=lambda m: m["similarity_score"])
+    was = float(best.get("area_cm2") or 0.0)
+    if was <= 0:
+        return "", None
+
+    delta_pct = (area_cm2 - was) / was * 100.0
+    when = str(best.get("detected_at", ""))[:10]
+
+    if delta_pct >= 25:
+        verdict = "GROWING"
+    elif delta_pct <= -25:
+        verdict = "reduced (verify -- may be a different viewing angle)"
+    else:
+        verdict = "stable"
+
+    note = (f"Previously recorded {when} at {was:.1f} cm2 "
+            f"(similarity {best['similarity_score']:.2f}); "
+            f"now {area_cm2:.1f} cm2 \u2014 {delta_pct:+.0f}%, {verdict}")
+
+    return note, {
+        "prior_session":  best.get("session_id"),
+        "prior_area_cm2": round(was, 2),
+        "prior_seen":     when,
+        "delta_pct":      round(delta_pct, 1),
+        "verdict":        verdict,
+        "similarity":     best["similarity_score"],
+    }
+
+
 def _estimate_area_cm2_from_box(box: list, alt_m: float,
                                 frame_width_px: int | None = None) -> float:
     """Estimate defect area in cm2 from a bounding box alone.
@@ -192,6 +240,7 @@ async def _process_one(raw_item: dict) -> None:
 
         # ── 3c. DINOv2 embedding + confidence re-scoring ──────────────────────
         similar_list: list[dict] = []
+        growth: dict | None = None
         _dinov2_flagged_local: bool = sam_fp          # inherit SAM FP flag
         if frame_np is not None and frame_np.size > 0:
             try:
@@ -237,6 +286,25 @@ async def _process_one(raw_item: dict) -> None:
 
                 similar_json = json.dumps([s["id"] for s in similar_list]) if similar_list else None
 
+                # Persist into the cross-session archive *before* the next
+                # detection looks for neighbours, so within-flight repeats
+                # are matchable too.
+                try:
+                    await _db.archive_embedding(
+                        detection_id    = det_id,
+                        class_name      = class_name,
+                        embedding_bytes = embedding.tobytes(),
+                        area_cm2        = area_cm2,
+                        severity        = severity,
+                        confidence      = confidence,
+                        lat             = lat,
+                        lon             = lon,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Embedding archive write failed for det_id=%d: %s", det_id, exc
+                    )
+
                 # Invalidate centroid cache now that a new embedding exists
                 embedder.invalidate_centroid(class_name)
 
@@ -255,13 +323,24 @@ async def _process_one(raw_item: dict) -> None:
 
         # ── 4. LLM report for high-confidence detections ──────────────────────
         if confidence >= config.LLM_CONF_THRESHOLD:
+            growth_note, growth = _describe_growth(area_cm2, similar_list)
+            if growth:
+                logger.info(
+                    "Growth \u25b6 %s det_id=%d: %.1f \u2192 %.1f cm2 (%+.0f%%) since %s [%s]",
+                    class_name, det_id, growth["prior_area_cm2"], area_cm2,
+                    growth["delta_pct"], growth["prior_seen"], growth["verdict"],
+                )
+
             similar_note = ""
             if similar_list:
                 similar_note = "\nSimilar past detections:\n" + "\n".join(
                     f"  - id={s['id']} at ({s['lat']:.5f},{s['lon']:.5f}) "
                     f"on {s['detected_at'][:10]} sim={s['similarity_score']:.2f}"
+                    f"{'' if s.get('same_session') else ' [earlier inspection]'}"
                     for s in similar_list
                 )
+            if growth_note:
+                similar_note += f"\nChange since last inspection: {growth_note}"
             dino_note = (
                 "DINOv2+SAM checks FAILED — probable false positive, verify manually"
                 if (sam_fp and _dinov2_flagged_local)
@@ -288,7 +367,9 @@ async def _process_one(raw_item: dict) -> None:
                 f"Location: Bengaluru, Karnataka, India\n"
                 f"DINOv2 note: {dino_note}"
                 f"{similar_note}\n"
-                "Generate the inspection report JSON."
+                + ("If the defect is growing, raise urgency accordingly.\n"
+                   if growth and growth["verdict"] == "GROWING" else "")
+                + "Generate the inspection report JSON."
             )
             report = await call_ollama(
                 prompt,

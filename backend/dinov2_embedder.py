@@ -194,34 +194,32 @@ class DINOv2Embedder:
         embedding: np.ndarray,
         class_name: str,
         top_k: int = 3,
+        prior_sessions_only: bool = False,
     ) -> list[dict]:
-        """
-        Return top_k most visually similar past detections (same class).
+        """Return the top_k most visually similar past detections of this class.
 
-        Fetches stored BYTEA embeddings from DB, decodes them, and ranks by
-        cosine similarity in Python (no pgvector required).
+        Searches the cross-session archive, so matches can come from earlier
+        inspections of the same structure rather than only from this flight.
+        Ranking is cosine similarity computed in numpy -- 768-dim vectors at a
+        few thousand rows is trivial, and it avoids requiring pgvector.
 
-        Returns list of dicts:
-            {id, lat, lon, detected_at, similarity_score, area_cm2}
+        ``prior_sessions_only`` excludes the current flight, which is what you
+        want when asking "has this been seen before?" as opposed to "what else
+        in this flight looks like this?".
+
+        Returns dicts of:
+            {id, session_id, lat, lon, detected_at, similarity_score,
+             area_cm2, same_session}
         """
-        from database import pool, CURRENT_TABLE
+        from database import pool, fetch_archived_embeddings, _SESSION_ID
 
         if pool is None:
             return []
 
         try:
-            async with pool.acquire() as conn:
-                rows = await conn.fetch(
-                    f"""
-                    SELECT id, lat, lon, detected_at, area_cm2, embedding
-                      FROM {CURRENT_TABLE}
-                     WHERE class_name = $1
-                       AND embedding  IS NOT NULL
-                     ORDER BY detected_at DESC
-                     LIMIT 500
-                    """,
-                    class_name,
-                )
+            rows = await fetch_archived_embeddings(
+                class_name, exclude_current_session=prior_sessions_only
+            )
         except Exception as exc:
             logger.warning("DINOv2 find_similar: DB query failed — %s", exc)
             return []
@@ -235,7 +233,9 @@ class DINOv2Embedder:
                 sim = DINOv2Embedder.cosine_similarity(embedding, stored)
                 scored.append(
                     {
-                        "id":               row["id"],
+                        "id":               row["detection_id"],
+                        "session_id":       row["session_id"],
+                        "same_session":     row["session_id"] == _SESSION_ID,
                         "lat":              float(row["lat"]),
                         "lon":              float(row["lon"]),
                         "detected_at":      str(row["detected_at"]),
@@ -262,23 +262,17 @@ class DINOv2Embedder:
         if class_name in self._centroid_cache:
             return self._centroid_cache[class_name]
 
-        from database import pool, CURRENT_TABLE
+        from database import pool, fetch_archived_embeddings
 
         if pool is None:
             self._centroid_cache[class_name] = None
             return None
 
         try:
-            async with pool.acquire() as conn:
-                rows = await conn.fetch(
-                    f"""
-                    SELECT embedding
-                      FROM {CURRENT_TABLE}
-                     WHERE class_name = $1
-                       AND embedding  IS NOT NULL
-                    """,
-                    class_name,
-                )
+            # Archive rather than session table: a single flight rarely
+            # produces the 5 examples of one class the centroid needs, so
+            # scoped to a session this check effectively never ran.
+            rows = await fetch_archived_embeddings(class_name)
         except Exception as exc:
             logger.warning("DINOv2 get_class_centroid: DB query failed — %s", exc)
             self._centroid_cache[class_name] = None

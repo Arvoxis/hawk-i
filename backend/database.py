@@ -14,6 +14,12 @@ DB_CONFIG = config.DB_CONFIG
 _SESSION_ID  = _datetime.now().strftime("%Y%m%d_%H%M%S")
 CURRENT_TABLE = f"detections_{_SESSION_ID}"
 
+# Persistent across sessions, unlike CURRENT_TABLE.  This is what makes
+# "has this defect been seen before, and has it grown?" answerable at all:
+# session tables are per-process, so a lookup scoped to one could only ever
+# find defects from the same flight.
+EMBEDDING_TABLE = "defect_embeddings"
+
 # Global connection pool
 pool = None
 
@@ -69,7 +75,113 @@ async def init_db():
             except Exception:
                 pass
 
+    await _init_embedding_archive()
+
     logger.info("Database connected | session table: %s", CURRENT_TABLE)
+
+
+async def _init_embedding_archive() -> None:
+    """Create the cross-session embedding archive if it does not exist."""
+    async with pool.acquire() as conn:
+        await conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS {EMBEDDING_TABLE} (
+                id           BIGSERIAL PRIMARY KEY,
+                session_id   TEXT             NOT NULL,
+                detection_id INTEGER          NOT NULL,
+                class_name   TEXT             NOT NULL,
+                embedding    BYTEA            NOT NULL,
+                area_cm2     REAL             DEFAULT 0.0,
+                severity     TEXT,
+                confidence   REAL             DEFAULT 0.0,
+                lat          DOUBLE PRECISION DEFAULT 0.0,
+                lon          DOUBLE PRECISION DEFAULT 0.0,
+                detected_at  TIMESTAMPTZ      DEFAULT NOW(),
+                UNIQUE (session_id, detection_id)
+            )
+        """)
+        # Class is the only filter every lookup applies.
+        await conn.execute(f"""
+            CREATE INDEX IF NOT EXISTS {EMBEDDING_TABLE}_class_idx
+                ON {EMBEDDING_TABLE} (class_name, detected_at DESC)
+        """)
+    async with pool.acquire() as conn:
+        total = await conn.fetchval(f"SELECT COUNT(*) FROM {EMBEDDING_TABLE}")
+        classes = await conn.fetchval(
+            f"SELECT COUNT(DISTINCT class_name) FROM {EMBEDDING_TABLE}")
+    logger.info(
+        "Embedding archive ready: %d embedding(s) across %d class(es) from "
+        "previous inspections", int(total or 0), int(classes or 0),
+    )
+
+
+async def archive_embedding(
+    detection_id: int,
+    class_name: str,
+    embedding_bytes: bytes,
+    area_cm2: float,
+    severity: str | None,
+    confidence: float,
+    lat: float,
+    lon: float,
+) -> None:
+    """Copy one detection's embedding into the cross-session archive."""
+    async with pool.acquire() as conn:
+        await conn.execute(f"""
+            INSERT INTO {EMBEDDING_TABLE}
+                (session_id, detection_id, class_name, embedding,
+                 area_cm2, severity, confidence, lat, lon)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (session_id, detection_id) DO UPDATE
+                SET embedding = EXCLUDED.embedding,
+                    area_cm2  = EXCLUDED.area_cm2,
+                    severity  = EXCLUDED.severity
+        """, _SESSION_ID, detection_id, class_name, embedding_bytes,
+            area_cm2, severity, confidence, lat, lon)
+
+
+async def fetch_archived_embeddings(
+    class_name: str,
+    limit: int = 2000,
+    exclude_current_session: bool = False,
+) -> list[dict]:
+    """Return archived embeddings for one defect class, newest first."""
+    guard = " AND session_id <> $2" if exclude_current_session else ""
+    params: list = [class_name]
+    if exclude_current_session:
+        params.append(_SESSION_ID)
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(f"""
+            SELECT id, session_id, detection_id, embedding, area_cm2,
+                   severity, lat, lon, detected_at
+              FROM {EMBEDDING_TABLE}
+             WHERE class_name = $1{guard}
+             ORDER BY detected_at DESC
+             LIMIT {int(limit)}
+        """, *params)
+        return [dict(r) for r in rows]
+
+
+async def archive_stats() -> dict:
+    """Summary of the archive, for /health and diagnostics."""
+    if pool is None:
+        return {"available": False}
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(f"""
+                SELECT COUNT(*) AS total,
+                       COUNT(DISTINCT class_name) AS classes,
+                       COUNT(DISTINCT session_id) AS sessions
+                  FROM {EMBEDDING_TABLE}
+            """)
+        return {
+            "available": True,
+            "embeddings": int(row["total"] or 0),
+            "classes":    int(row["classes"] or 0),
+            "sessions":   int(row["sessions"] or 0),
+        }
+    except Exception:
+        return {"available": False}
 
 
 async def save_detection_raw(

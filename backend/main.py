@@ -8,7 +8,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
-import json, base64, logging, queue, threading, time, os
+import json, base64, logging, math, queue, threading, time, os
 from datetime import datetime
 import numpy as np
 import cv2
@@ -639,7 +639,17 @@ async def health():
             "breaker":   llm_worker.breaker_state(),
         },
         "gs_yolo_enabled":  gs_yolo_model is not None,
+        "embedding_archive": await _archive_stats_safe(),
     }
+
+
+async def _archive_stats_safe() -> dict:
+    """Archive summary for /health, tolerant of a missing DB."""
+    try:
+        from database import archive_stats
+        return await archive_stats()
+    except Exception:
+        return {"available": False}
 
 
 @app.get("/frame/latest")
@@ -935,24 +945,35 @@ async def get_similar_detections(detection_id: int):
 @app.get("/api/site_health")
 async def site_health():
     """
-    Compute and return an overall site health score (0–100).
+    Compute and return an overall site health score (0-100).
 
-    Score formula:
-        100 - (CRITICAL×25 + HIGH×10 + MEDIUM×3 + LOW×1)  capped at 0.
+    The score is driven by the *worst* findings and by defect density, and is
+    deliberately sub-linear in count:
+
+        raw      = CRITICAL*25 + HIGH*10 + MEDIUM*3 + LOW*1
+        penalty  = 100 * (1 - exp(-raw / 60))
+        score    = round(100 - penalty)
+
+    A linear penalty hit zero after four critical findings, so any structure
+    with a handful of real defects scored 0/100 and the number stopped
+    discriminating between "needs attention" and "condemned" — every survey
+    of an ageing structure returned the same answer.  The exponential form
+    keeps the score responsive across the whole range while still never going
+    negative.
 
     CRITICAL = L3 with confidence > 0.85
-    HIGH     = L3 with confidence ≤ 0.85
+    HIGH     = L3 with confidence <= 0.85
     MEDIUM   = L2
     LOW      = L1
     """
     counts = await get_severity_counts()
-    penalty = (
+    raw = (
         counts.get("critical", 0) * 25
         + counts.get("high", 0)   * 10
         + counts.get("medium", 0) * 3
         + counts.get("low", 0)    * 1
     )
-    score = max(0, 100 - penalty)
+    score = int(round(100 * math.exp(-raw / 60.0))) if raw else 100
     return JSONResponse({
         "score":            score,
         "total_detections": counts.get("total", 0),
