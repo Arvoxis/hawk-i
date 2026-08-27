@@ -31,6 +31,10 @@ captures/
 data/frames/
 data/live_frame.jpg
 
+# Downloaded real-image corpus: the fetch script is committed, not the pixels.
+# Every file carries its own Wikimedia licence (see the generated MANIFEST).
+data/real_frames/
+
 # ── Generated reports ─────────────────────────────────────────
 reports/
 data/reports/
