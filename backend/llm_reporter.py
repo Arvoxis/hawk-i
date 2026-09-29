@@ -1,7 +1,8 @@
 """
 LLM Report Generator for ZeroDefect / Hawki
 --------------------------------------------
-Sends detection data to Ollama (Gemma-3 12B) and gets back
+Sends detection data to Ollama (Gemma-3 4B — the model is `config.LLM_MODEL`,
+which defaults to `gemma3:4b`) and gets back
 a structured infrastructure inspection report.
 
 Usage:
@@ -10,12 +11,12 @@ Usage:
     report = await reporter.generate_report(detection_data)
 """
 
-import httpx
 import json
 import logging
 from typing import Optional
 
 import config
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -96,14 +97,17 @@ class LLMReporter:
                         "system": SYSTEM_PROMPT,
                         "stream": False,
                         "options": config.ollama_options(
-                            temperature=0.3, num_predict=300,
+                            temperature=0.3,
+                            num_predict=300,
                         ),
                     },
                 )
                 response.raise_for_status()
                 data = response.json()
                 report = data.get("response", "").strip()
-                logger.info(f"LLM report generated for {detection.get('detection_class', 'unknown')}")
+                logger.info(
+                    f"LLM report generated for {detection.get('detection_class', 'unknown')}"
+                )
                 return report
 
         except httpx.TimeoutException:
@@ -120,16 +124,16 @@ class LLMReporter:
 
     def _build_prompt(self, det: dict) -> str:
         """Build the detection summary prompt for the LLM."""
-        defect_class  = det.get("detection_class", "unknown defect")
-        confidence    = det.get("confidence", 0.0)
-        area_cm2      = det.get("area_cm2", 0.0)
-        lat           = det.get("lat", 0.0)
-        lon           = det.get("lon", 0.0)
-        alt_m         = det.get("alt_m", 0.0)
-        severity      = det.get("severity", "unknown")
-        sam_score     = det.get("sam_score", 0.0)
+        defect_class = det.get("detection_class", "unknown defect")
+        confidence = det.get("confidence", 0.0)
+        area_cm2 = det.get("area_cm2", 0.0)
+        lat = det.get("lat", 0.0)
+        lon = det.get("lon", 0.0)
+        alt_m = det.get("alt_m", 0.0)
+        severity = det.get("severity", "unknown")
+        sam_score = det.get("sam_score", 0.0)
         dinov2_flagged = det.get("dinov2_flagged", False)
-        similar       = det.get("similar_past_detections", [])
+        similar = det.get("similar_past_detections", [])
 
         # Source phrasing
         source = det.get("source", "")
@@ -148,9 +152,9 @@ class LLMReporter:
         # Similar detections note
         if similar:
             sim_lines = "\n".join(
-                f"  • ({s.get('lat',0):.5f}, {s.get('lon',0):.5f}) on "
-                f"{str(s.get('detected_at',''))[:10]} "
-                f"(similarity={s.get('similarity_score',0):.2f}, area={s.get('area_cm2',0):.1f}cm²)"
+                f"  • ({s.get('lat', 0):.5f}, {s.get('lon', 0):.5f}) on "
+                f"{str(s.get('detected_at', ''))[:10]} "
+                f"(similarity={s.get('similarity_score', 0):.2f}, area={s.get('area_cm2', 0):.1f}cm²)"
                 for s in similar[:3]
             )
             sim_note = f"Similar defects found at:\n{sim_lines}\n→ pattern suggests recurring structural issue"
@@ -173,22 +177,34 @@ class LLMReporter:
     @staticmethod
     def _fallback_report(det: dict) -> str:
         """Generate a basic report when LLM is unavailable."""
-        defect_class   = det.get("detection_class", "unknown")
-        area_cm2       = det.get("area_cm2", 0.0)
-        lat            = det.get("lat", 0.0)
-        lon            = det.get("lon", 0.0)
-        alt_m          = det.get("alt_m", 0.0)
+        defect_class = det.get("detection_class", "unknown")
+        area_cm2 = det.get("area_cm2", 0.0)
+        lat = det.get("lat", 0.0)
+        lon = det.get("lon", 0.0)
+        alt_m = det.get("alt_m", 0.0)
         dinov2_flagged = det.get("dinov2_flagged", False)
-        similar        = det.get("similar_past_detections", [])
+        similar = det.get("similar_past_detections", [])
 
         if area_cm2 > 2000:
-            sev, urgency, action = "CRITICAL", "IMMEDIATE", "Isolate area and emergency repair within 24h"
+            sev, urgency, action = (
+                "CRITICAL",
+                "IMMEDIATE",
+                "Isolate area and emergency repair within 24h",
+            )
         elif area_cm2 > 500:
             sev, urgency, action = "HIGH", "WITHIN_48H", "Schedule repair within 1 week"
         elif area_cm2 > 100:
-            sev, urgency, action = "MEDIUM", "WITHIN_7_DAYS", "Schedule repair within 1 month"
+            sev, urgency, action = (
+                "MEDIUM",
+                "WITHIN_7_DAYS",
+                "Schedule repair within 1 month",
+            )
         else:
-            sev, urgency, action = "LOW", "ROUTINE", "Include in next scheduled maintenance"
+            sev, urgency, action = (
+                "LOW",
+                "ROUTINE",
+                "Include in next scheduled maintenance",
+            )
 
         confidence_tag = "FLAGGED_FOR_REVIEW" if dinov2_flagged else "VERIFIED"
         pattern = "RECURRING" if similar else "ISOLATED"
@@ -215,29 +231,27 @@ class LLMReporter:
         """
         if not detections:
             return {
-                "total_defects":    0,
-                "by_class":         {},
-                "by_severity":      {},
+                "total_defects": 0,
+                "by_class": {},
+                "by_severity": {},
                 "site_health_score": 100,
-                "gps_bbox":         {},
-                "most_critical":    None,
-                "next_inspection":  "30 days",
-                "llm_summary":      "No defects detected this session.",
+                "gps_bbox": {},
+                "most_critical": None,
+                "next_inspection": "30 days",
+                "llm_summary": "No defects detected this session.",
             }
 
         by_class: dict[str, int] = {}
-        by_sev:   dict[str, int] = {}
+        by_sev: dict[str, int] = {}
         for d in detections:
             cls = d.get("class_name", "unknown")
             sev = d.get("severity", "L1")
             by_class[cls] = by_class.get(cls, 0) + 1
-            by_sev[sev]   = by_sev.get(sev, 0) + 1
+            by_sev[sev] = by_sev.get(sev, 0) + 1
 
         # Site health score: 100 - penalty (capped at 0)
         penalty = (
-            by_sev.get("L3", 0) * 25
-            + by_sev.get("L2", 0) * 3
-            + by_sev.get("L1", 0) * 1
+            by_sev.get("L3", 0) * 25 + by_sev.get("L2", 0) * 3 + by_sev.get("L1", 0) * 1
         )
         health_score = max(0, 100 - penalty)
 
@@ -254,7 +268,10 @@ class LLMReporter:
         sev_order = {"L3": 3, "L2": 2, "L1": 1}
         most_critical = max(
             detections,
-            key=lambda d: (sev_order.get(d.get("severity", "L1"), 0), d.get("confidence", 0)),
+            key=lambda d: (
+                sev_order.get(d.get("severity", "L1"), 0),
+                d.get("confidence", 0),
+            ),
         )
 
         # Next inspection recommendation based on health score
@@ -266,26 +283,28 @@ class LLMReporter:
             next_insp = "within 90 days"
 
         # LLM summary
-        llm_summary = await self._batch_llm_summary(detections, by_class, by_sev, health_score)
+        llm_summary = await self._batch_llm_summary(
+            detections, by_class, by_sev, health_score
+        )
 
         return {
-            "total_defects":     len(detections),
-            "by_class":          by_class,
-            "by_severity":       {
-                "L3_high":  by_sev.get("L3", 0),
+            "total_defects": len(detections),
+            "by_class": by_class,
+            "by_severity": {
+                "L3_high": by_sev.get("L3", 0),
                 "L2_medium": by_sev.get("L2", 0),
-                "L1_low":   by_sev.get("L1", 0),
+                "L1_low": by_sev.get("L1", 0),
             },
             "site_health_score": health_score,
-            "gps_bbox":          gps_bbox,
-            "most_critical":     {
+            "gps_bbox": gps_bbox,
+            "most_critical": {
                 "class_name": most_critical.get("class_name"),
-                "severity":   most_critical.get("severity"),
-                "lat":        most_critical.get("lat"),
-                "lon":        most_critical.get("lon"),
+                "severity": most_critical.get("severity"),
+                "lat": most_critical.get("lat"),
+                "lon": most_critical.get("lon"),
             },
-            "next_inspection":   next_insp,
-            "llm_summary":       llm_summary,
+            "next_inspection": next_insp,
+            "llm_summary": llm_summary,
         }
 
     async def _batch_llm_summary(
@@ -310,10 +329,10 @@ class LLMReporter:
                 response = await client.post(
                     self.ollama_url,
                     json={
-                        "model":   self.model,
-                        "prompt":  prompt,
-                        "system":  _BATCH_SYSTEM,
-                        "stream":  False,
+                        "model": self.model,
+                        "prompt": prompt,
+                        "system": _BATCH_SYSTEM,
+                        "stream": False,
                         "options": config.ollama_options(),
                     },
                 )
@@ -339,7 +358,9 @@ class LLMReporter:
                 if available:
                     logger.info(f"Ollama OK — {self.model} available")
                 else:
-                    logger.warning(f"Ollama running but {self.model} not found. Available: {models}")
+                    logger.warning(
+                        f"Ollama running but {self.model} not found. Available: {models}"
+                    )
                 return available
         except Exception as e:
             logger.error(f"Ollama health check failed: {e}")
