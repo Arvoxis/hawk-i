@@ -730,11 +730,11 @@
 
     <div class="g2" style="margin-top: 20px;">
       <div>
-        <p>ZeroDefect has three core components working together. The <strong>drone</strong> acts as the mobile sensor platform — flying autonomous waypoint paths around, beneath, and alongside structures. The <strong>AI stack</strong> (Grounding DINO + SAM 3 + LLM) turns the camera feed into structured defect intelligence using natural language. The <strong>dashboard and report system</strong> turns that intelligence into immediately actionable outputs for engineers and government clients.</p>
+        <p>ZeroDefect has three core components working together. The <strong>drone</strong> acts as the mobile sensor platform — flying autonomous waypoint paths around, beneath, and alongside structures. The <strong>AI stack</strong> (Grounding DINO + SAM 2 + LLM) turns the camera feed into structured defect intelligence using natural language. The <strong>dashboard and report system</strong> turns that intelligence into immediately actionable outputs for engineers and government clients.</p>
 
         <p>The key insight is that inspection engineers already know what they're looking for. They don't need the AI to be trained on thousands of images — they need to describe the defect in plain language and have the system find it. That's exactly what Grounding DINO enables. It's a foundation model that was trained on hundreds of millions of image-text pairs, so it already understands concepts like "rusted rebar," "efflorescence," "delaminated concrete," or "corroded cable" — without any fine-tuning.</p>
 
-        <p>After detection, <strong>SAM 3</strong> draws pixel-precise boundaries around each defect — allowing us to calculate exact crack length in centimetres and damaged area in cm². This is critical for Indian PWD reporting, which requires quantified severity ratings (L1/L2/L3) to trigger repair budgets. The <strong>LLM</strong> then generates a structured report entry in the format that state PWD departments actually require — in English and optionally Hindi.</p>
+        <p>After detection, <strong>SAM 2</strong> draws pixel-precise boundaries around each defect — allowing us to calculate exact crack length in centimetres and damaged area in cm². This is critical for Indian PWD reporting, which requires quantified severity ratings (L1/L2/L3) to trigger repair budgets. The <strong>LLM</strong> then generates a structured report entry in the format that state PWD departments actually require — in English and optionally Hindi.</p>
       </div>
       <div>
         <div class="card card-green">
@@ -797,9 +797,9 @@
       <div class="p-line"></div>
       <div class="p-body">
         <div class="p-title">Ground station — segmentation and measurement</div>
-        <div class="p-detail">Detection JSON + compressed frames stream to the ground station laptop via WebSocket over 4G/WiFi. For each high-confidence detection, SAM 3 runs on the laptop's GPU (even an RTX 3060 is sufficient). SAM 3 uses the Grounding DINO bounding box as a prompt and returns a pixel-precise mask of the defect. Using the drone's altitude, GPS, and camera focal length (pre-calibrated), the system converts pixel dimensions to real-world measurements: <em>"Longitudinal crack, length 47cm, width 3.2cm"</em>. This data directly maps to IRC 22–2015 severity classification: L1 (minor), L2 (moderate), L3 (critical).</div>
+        <div class="p-detail">Detection JSON + compressed frames stream to the ground station laptop via WebSocket over 4G/WiFi. For each high-confidence detection, SAM 2 runs on the laptop's GPU (even an RTX 3060 is sufficient). SAM 2 uses the Grounding DINO bounding box as a prompt and returns a pixel-precise mask of the defect. Using the drone's altitude, GPS, and camera focal length (pre-calibrated), the system converts pixel dimensions to real-world measurements: <em>"Longitudinal crack, length 47cm, width 3.2cm"</em>. This data directly maps to IRC 22–2015 severity classification: L1 (minor), L2 (moderate), L3 (critical).</div>
         <div class="step-tags" style="margin-top: 8px;">
-          <span class="tag tag-gold">SAM 3 (PyTorch)</span><span class="tag tag-gold">Pixel→cm conversion</span><span class="tag tag-gold">IRC 22-2015 severity mapping</span>
+          <span class="tag tag-gold">SAM 2 (PyTorch)</span><span class="tag tag-gold">Pixel→cm conversion</span><span class="tag tag-gold">IRC 22-2015 severity mapping</span>
         </div>
       </div>
     </div>
@@ -853,7 +853,7 @@
       <div class="card">
         <div class="usp-num">03</div>
         <div class="usp-title">Quantified defects, not just photos</div>
-        <div class="usp-body">Traditional drone inspection gives you a gallery of images. ZeroDefect gives you <em>measurements</em>. SAM 3 pixel masks + GPS altitude = exact crack length in cm, spalling area in cm², water seepage spread in m². These numbers directly map to IRC 22-2015 severity classifications (L1/L2/L3) which determine repair budget allocations in state PWD. <strong>The output is a submission-ready PWD report, not a photo album.</strong></div>
+        <div class="usp-body">Traditional drone inspection gives you a gallery of images. ZeroDefect gives you <em>measurements</em>. SAM 2 pixel masks + GPS altitude = exact crack length in cm, spalling area in cm², water seepage spread in m². These numbers directly map to IRC 22-2015 severity classifications (L1/L2/L3) which determine repair budget allocations in state PWD. <strong>The output is a submission-ready PWD report, not a photo album.</strong></div>
       </div>
       <div class="card">
         <div class="usp-num">04</div>
@@ -894,7 +894,7 @@
           <td>Quantified measurements (cm)</td>
           <td><span class="no">✗</span> Subjective estimates</td>
           <td><span class="no">✗</span> Not possible</td>
-          <td><span class="yes">✓</span> SAM 3 mask + altitude = exact cm²</td>
+          <td><span class="yes">✓</span> SAM 2 mask + altitude = exact cm²</td>
         </tr>
         <tr>
           <td>Works fully offline</td>
@@ -967,7 +967,7 @@
       <div class="arch-sep"></div>
       <div class="arch-lbl">Layer 3 — Ground Station Backend (FastAPI · laptop GPU · offline-capable)</div>
       <div class="arch-row">
-        <div class="arch-box ab-gold">SAM 3<br>Pixel segmentation<br>→ cm² measurement</div>
+        <div class="arch-box ab-gold">SAM 2<br>Pixel segmentation<br>→ cm² measurement</div>
         <div class="arch-arr">→</div>
         <div class="arch-box ab-gold">DINOv2<br>Anomaly scoring<br>Temporal delta</div>
         <div class="arch-arr">→</div>
@@ -1005,7 +1005,7 @@
         <h3>Ground Station Software</h3>
         <table class="spec">
           <tr><td>API server</td><td>FastAPI + Uvicorn (async)</td></tr>
-          <tr><td>Segmentation</td><td>SAM 3 Small · PyTorch · CUDA</td></tr>
+          <tr><td>Segmentation</td><td>SAM 2 Small · PyTorch · CUDA</td></tr>
           <tr><td>Anomaly</td><td>DINOv2-B/14 · timm · cosine similarity</td></tr>
           <tr><td>LLM online</td><td>GPT-4o vision · LangChain · Pydantic</td></tr>
           <tr><td>LLM offline</td><td>Gemma-3 12B · Ollama · localhost:11434</td></tr>
@@ -1145,7 +1145,7 @@
     <div class="callout">
       <div class="callout-label">Strategy</div>
       <div class="callout-text">
-        <strong>Build in layers, not in sequence.</strong> The demo-winning core is: drone feed → Grounding DINO detection → boxes appear on dashboard map. Everything else (SAM 3, LLM reports, DINOv2, PDF export) is additive. Finish the core in Day 1. Polish and stack layers in Days 2–3. If hardware runs into issues, pre-captured footage on a laptop can carry the entire demo — judges care about the AI, not the drone flying in front of them.
+        <strong>Build in layers, not in sequence.</strong> The demo-winning core is: drone feed → Grounding DINO detection → boxes appear on dashboard map. Everything else (SAM 2, LLM reports, DINOv2, PDF export) is additive. Finish the core in Day 1. Polish and stack layers in Days 2–3. If hardware runs into issues, pre-captured footage on a laptop can carry the entire demo — judges care about the AI, not the drone flying in front of them.
       </div>
     </div>
 
@@ -1188,7 +1188,7 @@
         <div class="day-num">Day 2</div>
         <div>
           <div class="day-title">Integration — Connect all layers, fly the drone</div>
-          <div class="day-focus">Target: Live drone feed + SAM 3 masks + LLM report panel working</div>
+          <div class="day-focus">Target: Live drone feed + SAM 2 masks + LLM report panel working</div>
         </div>
       </div>
       <div class="day-body">
@@ -1205,10 +1205,10 @@
         <div>
           <div class="lane-label lane-sw">Software Team (2 people)</div>
           <ul class="task-list">
-            <li class="task-crit"><strong>SW1:</strong> Implement SAM 3 worker: receives ROI crop → returns binary mask → compute area in cm² using altitude.</li>
+            <li class="task-crit"><strong>SW1:</strong> Implement SAM 2 worker: receives ROI crop → returns binary mask → compute area in cm² using altitude.</li>
             <li class="task-crit"><strong>SW2:</strong> Wire LLM pipeline: high-confidence detections → LangChain prompt → Gemma-3 → severity JSON → dashboard panel.</li>
             <li><strong>SW1:</strong> Add DBSCAN deduplication: merge detections within 2m GPS radius across overlapping flight passes.</li>
-            <li><strong>SW2:</strong> Add SAM 3 mask overlay to live video feed: green fill on detected defect areas with crack length label.</li>
+            <li><strong>SW2:</strong> Add SAM 2 mask overlay to live video feed: green fill on detected defect areas with crack length label.</li>
             <li><strong>SW1:</strong> Implement DINOv2 baseline comparison: embed first flight's frames, flag frames with cosine similarity below 0.82.</li>
             <li><strong>SW2:</strong> Build WeasyPrint PDF template: defect inventory table + map screenshot + photos + action list in PWD format.</li>
           </ul>
@@ -1281,7 +1281,7 @@
         <div class="person-avatar av-sw">S1</div>
         <div class="person-role">Software · Backend</div>
         <div class="person-name">Backend + AI Pipeline</div>
-        <div class="person-tasks">FastAPI WebSocket server, SAM 3 worker, DINOv2 baseline, PostGIS schema, DBSCAN dedup, GPS projection math, WeasyPrint PDF</div>
+        <div class="person-tasks">FastAPI WebSocket server, SAM 2 worker, DINOv2 baseline, PostGIS schema, DBSCAN dedup, GPS projection math, WeasyPrint PDF</div>
       </div>
       <div class="person-card">
         <div class="person-avatar av-sw">S2</div>
@@ -1294,7 +1294,7 @@
     <div class="callout" style="margin-top: 20px; border-left-color: var(--saffron);">
       <div class="callout-label" style="color: var(--saffron);">Critical path rule</div>
       <div class="callout-text">
-        H1 and S1 are your critical path. <strong>H1 must have the Jetson streaming detection JSON over WebSocket by end of Day 1.</strong> <strong>S1 must have FastAPI receiving that JSON and dropping a pin on the Folium map by end of Day 1.</strong> Everything else — SAM 3, LLM, DINOv2, PDF — is a bonus layer. Demo the core first, stack on top.
+        H1 and S1 are your critical path. <strong>H1 must have the Jetson streaming detection JSON over WebSocket by end of Day 1.</strong> <strong>S1 must have FastAPI receiving that JSON and dropping a pin on the Folium map by end of Day 1.</strong> Everything else — SAM 2, LLM, DINOv2, PDF — is a bonus layer. Demo the core first, stack on top.
       </div>
     </div>
   </div>

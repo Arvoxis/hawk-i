@@ -429,6 +429,27 @@
     <div class="topbar-badge">INTERNAL DEV DOC</div>
   </div>
 
+  <!-- Accuracy banner: this page is the PRE-BUILD plan, archived under docs/legacy/.
+       Kept as written; what shipped differs in three places, listed here so nobody
+       follows a stale instruction. -->
+  <div style="border:2px solid #FF6B35;border-radius:8px;padding:14px 18px;margin:18px 0;
+              background:rgba(255,107,53,.08);font-size:14px;line-height:1.55;">
+    <strong style="color:#FF6B35;">⚠ This page is the plan, not the build.</strong>
+    Written before implementation and archived here as a record. Three things differ from
+    what actually shipped — follow the code, not this page, where they disagree:
+    <ul style="margin:8px 0 0 18px;">
+      <li><strong>SAM 2, not SAM 3.</strong> There is no SAM 3 in this project and no
+          <code>segment-anything-3</code> in <code>requirements.txt</code>.
+          <code>backend/sam3_worker.py</code> keeps the planned name but imports
+          <code>SAM2Segmenter</code> from <code>backend/sam2_segmenter.py</code>.</li>
+      <li><strong>Gemma-3 4B, not 12B.</strong> The model is <code>config.LLM_MODEL</code>,
+          which defaults to <code>gemma3:4b</code>.</li>
+      <li><strong>PDFs use <code>reportlab</code>, not WeasyPrint</strong>, and LangChain was
+          never added — neither is in <code>requirements.txt</code>. See
+          <code>backend/pdf_generator.py</code>.</li>
+    </ul>
+  </div>
+
   <!-- HERO -->
   <div class="hero">
     <div class="hero-label">Hawk-I · Software Architecture</div>

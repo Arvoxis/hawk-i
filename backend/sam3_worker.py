@@ -2,6 +2,12 @@
 sam3_worker.py — SAM 2 bounding-box segmentation, severity-coloured mask overlay,
 and annotated-frame persistence.
 
+NAME WARNING: there is no SAM 3 in this project. This module is named after the
+original plan in docs/legacy/softdev.html ("install segment-anything-3"), but it
+imports SAM2Segmenter from sam2_segmenter and runs SAM 2 — as do the "SAM3"
+strings in database.py and dashboard/utils.py. Renaming the module would touch
+main.py, processing_worker.py, database.py and video_stream.py, so the name stays.
+
 GPU optimisation: process_frame() encodes the image ONCE on the GPU and
 predicts all bounding boxes in a single inference context — N× faster than
 calling segment_box() once per detection (which re-runs the heavy image
@@ -12,11 +18,10 @@ import logging
 import os
 from datetime import datetime
 
+import config
 import cv2
 import numpy as np
 import torch
-
-import config
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +37,9 @@ _MASK_ALPHA = 0.28
 
 # ── Overlay colours (BGR tuples) ──────────────────────────────────────────────
 _SEV_BGR = {
-    "L1": (0,   200, 0),    # green
-    "L2": (0,   165, 255),  # orange
-    "L3": (50,  50,  255),  # red
+    "L1": (0, 200, 0),  # green
+    "L2": (0, 165, 255),  # orange
+    "L3": (50, 50, 255),  # red
 }
 
 # ── Lazy SAM2 segmenter singleton ─────────────────────────────────────────────
@@ -45,11 +50,13 @@ def _get_segmenter():
     global _segmenter
     if _segmenter is None:
         from sam2_segmenter import SAM2Segmenter
+
         _segmenter = SAM2Segmenter()
     return _segmenter
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _resolve_altitude(gps: dict) -> float:
     """Return a safe altitude value, warning if the raw value is bad."""
@@ -59,7 +66,9 @@ def _resolve_altitude(gps: dict) -> float:
         logger.warning(
             "alt_m=%s is null or <%.1f m — GSD calculation unreliable, "
             "using default %.1f m",
-            raw, config.MIN_ALT_M, config.DEFAULT_ALT_M,
+            raw,
+            config.MIN_ALT_M,
+            config.DEFAULT_ALT_M,
         )
     return alt
 
@@ -116,7 +125,8 @@ def _draw_detection(
             cv2.drawContours(canvas_bgr, contours, -1, bgr_col, 2, cv2.LINE_AA)
     else:
         logger.warning(
-            "_draw_detection: mask is empty for %s — no colour overlay drawn", class_name
+            "_draw_detection: mask is empty for %s — no colour overlay drawn",
+            class_name,
         )
 
     x1, y1, x2, y2 = (int(v) for v in box)
@@ -126,20 +136,28 @@ def _draw_detection(
     label_y = max(y1 - 8, 16)
     # dark background strip behind text for legibility
     (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.50, 1)
-    cv2.rectangle(canvas_bgr,
-                  (x1, label_y - th - 4), (x1 + tw + 4, label_y + 2),
-                  (0, 0, 0), -1)
-    cv2.putText(canvas_bgr, label,
-                (x1 + 2, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.50, bgr_col, 1,
-                cv2.LINE_AA)
+    cv2.rectangle(
+        canvas_bgr, (x1, label_y - th - 4), (x1 + tw + 4, label_y + 2), (0, 0, 0), -1
+    )
+    cv2.putText(
+        canvas_bgr,
+        label,
+        (x1 + 2, label_y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.50,
+        bgr_col,
+        1,
+        cv2.LINE_AA,
+    )
 
 
 # ── Primary API: process entire frame in ONE GPU encode call ──────────────────
 
+
 def process_frame(
-    frame_np:   np.ndarray,
+    frame_np: np.ndarray,
     detections: list[dict],
-    gps:        dict,
+    gps: dict,
 ) -> tuple[list[dict], bytes | None]:
     """
     Run SAM 2 on ALL bounding boxes in a single frame using one image-encode
@@ -169,17 +187,21 @@ def process_frame(
         return [], None
 
     h, w = frame_np.shape[:2]
-    logger.debug("process_frame: input frame shape=%s dtype=%s", frame_np.shape, frame_np.dtype)
+    logger.debug(
+        "process_frame: input frame shape=%s dtype=%s", frame_np.shape, frame_np.dtype
+    )
 
     # ── Altitude / GSD — use actual frame width, not the hardcoded constant ──
     alt_m = _resolve_altitude(gps)
-    gsd   = _gsd_cm_per_px(alt_m, img_w_px=w)
-    logger.debug("process_frame: alt_m=%.1f gsd=%.4f cm/px (frame %dx%d)", alt_m, gsd, w, h)
+    gsd = _gsd_cm_per_px(alt_m, img_w_px=w)
+    logger.debug(
+        "process_frame: alt_m=%.1f gsd=%.4f cm/px (frame %dx%d)", alt_m, gsd, w, h
+    )
 
     seg = _get_segmenter()
     seg._load_model()
 
-    bgr_base  = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
+    bgr_base = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
     composite = bgr_base.copy()
 
     os.makedirs(os.path.join("data", "frames"), exist_ok=True)
@@ -189,12 +211,14 @@ def process_frame(
     # ── Single GPU image encode, N box predictions ────────────────────────────
     with torch.inference_mode(), seg._autocast_ctx():
         seg._predictor.set_image(frame_np)
-        logger.debug("process_frame: SAM2 image encoder done (%d detection(s))", len(detections))
+        logger.debug(
+            "process_frame: SAM2 image encoder done (%d detection(s))", len(detections)
+        )
 
         for det in detections:
-            box        = det.get("box", [0, 0, 64, 64])
+            box = det.get("box", [0, 0, 64, 64])
             class_name = det.get("class_name", "defect")
-            conf       = float(det.get("conf", 0.0))
+            conf = float(det.get("conf", 0.0))
 
             # ── Validate box ──────────────────────────────────────────────
             if len(box) != 4:
@@ -208,7 +232,11 @@ def process_frame(
                 logger.warning(
                     "SAM2 ▶ %s: box %s looks normalised (max=%.3f) — "
                     "scaling to pixel space (%dx%d)",
-                    class_name, box, max(x1, y1, x2, y2), w, h,
+                    class_name,
+                    box,
+                    max(x1, y1, x2, y2),
+                    w,
+                    h,
                 )
                 x1, x2 = x1 * w, x2 * w
                 y1, y2 = y1 * h, y2 * h
@@ -218,13 +246,20 @@ def process_frame(
             if box_area <= 0:
                 logger.error(
                     "SAM2 ▶ %s: degenerate box %s (area=%.1f px²) — skipping",
-                    class_name, box, box_area,
+                    class_name,
+                    box,
+                    box_area,
                 )
                 continue
 
             logger.debug(
                 "SAM2 ▶ %s: box=[%.1f,%.1f,%.1f,%.1f] area=%.0f px²",
-                class_name, x1, y1, x2, y2, box_area,
+                class_name,
+                x1,
+                y1,
+                x2,
+                y2,
+                box_area,
             )
 
             # ── SAM2 predict ──────────────────────────────────────────────
@@ -240,19 +275,23 @@ def process_frame(
                 if n_masks == 0:
                     logger.error(
                         "SAM2 ▶ %s: predict() returned 0 masks — "
-                        "check box coords and model weights", class_name,
+                        "check box coords and model weights",
+                        class_name,
                     )
-                    mask    = np.zeros((h, w), dtype=bool)
-                    score   = 0.0
+                    mask = np.zeros((h, w), dtype=bool)
+                    score = 0.0
                     area_px = 0
                 else:
-                    mask    = masks[0].astype(bool)
-                    score   = float(scores[0])
+                    mask = masks[0].astype(bool)
+                    score = float(scores[0])
                     area_px = int(mask.sum())
 
                     logger.debug(
                         "SAM2 ▶ %s: n_masks=%d best_score=%.3f area_px=%d",
-                        class_name, n_masks, score, area_px,
+                        class_name,
+                        n_masks,
+                        score,
+                        area_px,
                     )
 
                     if area_px == 0:
@@ -262,14 +301,16 @@ def process_frame(
                         logger.warning(
                             "SAM2 ▶ %s: mask returned but area_px=0 — "
                             "falling back to bbox area %d px²",
-                            class_name, bbox_area_px,
+                            class_name,
+                            bbox_area_px,
                         )
                         area_px = bbox_area_px
-                        score   = -1.0   # mark as bbox-estimate, not real mask
+                        score = -1.0  # mark as bbox-estimate, not real mask
                     if score >= 0 and score < 0.5:
                         logger.warning(
                             "SAM2 ▶ %s: low IoU score %.3f — mask quality poor",
-                            class_name, score,
+                            class_name,
+                            score,
                         )
 
                     # ── Mask quality gate ─────────────────────────────────
@@ -280,33 +321,48 @@ def process_frame(
                         logger.warning(
                             "SAM2 ▶ %s: score %.3f < %.2f — "
                             "using bbox area %d px² instead of mask %d px²",
-                            class_name, score, _MASK_QUALITY_THRESHOLD,
-                            bbox_area_px, area_px,
+                            class_name,
+                            score,
+                            _MASK_QUALITY_THRESHOLD,
+                            bbox_area_px,
+                            area_px,
                         )
                         area_px = bbox_area_px
 
             except Exception as exc:
                 logger.warning(
                     "SAM2 ▶ %s predict failed for box=%s: %s — bbox fill fallback",
-                    class_name, box, exc,
+                    class_name,
+                    box,
+                    exc,
                 )
-                mask    = np.zeros((h, w), dtype=bool)
-                mask[max(0, int(y1)):max(0, int(y2)),
-                     max(0, int(x1)):max(0, int(x2))] = True
+                mask = np.zeros((h, w), dtype=bool)
+                mask[
+                    max(0, int(y1)) : max(0, int(y2)), max(0, int(x1)) : max(0, int(x2))
+                ] = True
                 area_px = int(mask.sum())
-                score   = 0.0
+                score = 0.0
 
             # ── Area + severity ───────────────────────────────────────────
-            area_cm2 = float(area_px) * (gsd ** 2)
+            area_cm2 = float(area_px) * (gsd**2)
             severity = _classify(area_cm2)
 
             logger.info(
                 "SAM2 ▶ %s | box=[%.0f,%.0f,%.0f,%.0f] | "
                 "n_masks=%d score=%.3f area_px=%d | "
                 "alt_m=%.1f gsd=%.4f area_cm2=%.1f | sev=%s",
-                class_name, x1, y1, x2, y2,
-                n_masks, score, area_px,
-                alt_m, gsd, area_cm2, severity,
+                class_name,
+                x1,
+                y1,
+                x2,
+                y2,
+                n_masks,
+                score,
+                area_px,
+                alt_m,
+                gsd,
+                area_cm2,
+                severity,
             )
 
             # ── Individual annotated image — only save L2/L3 to disk ─────
@@ -315,29 +371,37 @@ def process_frame(
 
             img_path = None
             if severity in ("L2", "L3"):
-                ts       = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+                ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")[:-3]
                 safe_cls = class_name.replace(" ", "_")
                 img_path = os.path.join("data", "frames", f"{ts}_{safe_cls}.jpg")
                 ok = cv2.imwrite(img_path, individual, [cv2.IMWRITE_JPEG_QUALITY, 85])
                 if not ok:
-                    logger.error("SAM2 ▶ %s: cv2.imwrite failed for path %s", class_name, img_path)
+                    logger.error(
+                        "SAM2 ▶ %s: cv2.imwrite failed for path %s",
+                        class_name,
+                        img_path,
+                    )
                     img_path = None
                 else:
-                    logger.debug("SAM2 ▶ %s: annotated frame saved → %s", class_name, img_path)
+                    logger.debug(
+                        "SAM2 ▶ %s: annotated frame saved → %s", class_name, img_path
+                    )
 
             # ── Draw on composite frame for MJPEG stream ──────────────────
             _draw_detection(composite, mask, box, class_name, severity, conf, area_cm2)
 
-            results.append({
-                "mask_image_path": img_path,
-                "area_cm2":        round(area_cm2, 2),
-                "severity":        severity,
-                "pixel_count":     area_px,
-                "sam_score":       score,
-                # Raw mask returned so DINOv2 can isolate the defect crop.
-                # Stored as bool numpy array; caller decides whether to keep it.
-                "mask":            mask,
-            })
+            results.append(
+                {
+                    "mask_image_path": img_path,
+                    "area_cm2": round(area_cm2, 2),
+                    "severity": severity,
+                    "pixel_count": area_px,
+                    "sam_score": score,
+                    # Raw mask returned so DINOv2 can isolate the defect crop.
+                    # Stored as bool numpy array; caller decides whether to keep it.
+                    "mask": mask,
+                }
+            )
 
     # ── Encode composite frame for MJPEG stream ───────────────────────────────
     if results:
@@ -349,7 +413,8 @@ def process_frame(
             composite_jpeg = buf.tobytes()
             logger.debug(
                 "process_frame: composite JPEG encoded (%d bytes, %d detection(s))",
-                len(composite_jpeg), len(results),
+                len(composite_jpeg),
+                len(results),
             )
     else:
         composite_jpeg = None
@@ -359,10 +424,11 @@ def process_frame(
 
 # ── Legacy single-detection path (kept for /api/segment endpoint) ─────────────
 
+
 def process_detection(
-    frame_np:   np.ndarray,
-    box:        list,
-    gps:        dict,
+    frame_np: np.ndarray,
+    box: list,
+    gps: dict,
     class_name: str = "defect",
 ) -> dict:
     """Single-detection wrapper around process_frame (for backward compat)."""
@@ -375,12 +441,12 @@ def process_detection(
         r = results[0]
         return {**r, "annotated_jpeg_bytes": jpeg}
     return {
-        "mask_image_path":      "",
+        "mask_image_path": "",
         "annotated_jpeg_bytes": None,
-        "area_cm2":             0.0,
-        "severity":             "L1",
-        "pixel_count":          0,
-        "sam_score":            0.0,
+        "area_cm2": 0.0,
+        "severity": "L1",
+        "pixel_count": 0,
+        "sam_score": 0.0,
     }
 
 
