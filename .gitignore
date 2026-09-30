@@ -56,3 +56,6 @@ Thumbs.db
 
 # ── Claude Code internals ─────────────────────────────────────
 .claude/
+
+# graphify knowledge-graph output (regenerate with /graphify . --update)
+graphify-out/

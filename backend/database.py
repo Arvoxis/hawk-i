@@ -279,7 +279,7 @@ async def update_detection_sam(
     image_path: str | None = None,
     severity: str | None = None,
 ):
-    """Back-fill SAM2/SAM3 results for an already-saved detection row.
+    """Back-fill SAM 2 results for an already-saved detection row.
 
     ``severity`` is the area-based classification produced by sam2_worker;
     when provided it overwrites the initial confidence-based severity so the
@@ -303,7 +303,7 @@ async def update_detection_sam(
                        image_path = COALESCE($4, image_path)
                  WHERE id = $1
             """, det_id, area_cm2, sam_score, image_path)
-    logger.debug(f"SAM3 updated row {det_id}: {area_cm2:.1f} cm² sev={severity or '—'}")
+    logger.debug(f"SAM 2 updated row {det_id}: {area_cm2:.1f} cm² sev={severity or '—'}")
 
 
 async def update_detection_report(

@@ -7,7 +7,8 @@ how many defects, of what kinds, how healthy is the site, and what should the
 engineer do next.
 
 The aggregation (counts, health score, GPS bounding box, worst defect) is pure
-arithmetic.  The one-paragraph narrative comes from the LLM, and it goes
+arithmetic.  The one-paragraph narrative comes from the LLM -- whichever model
+`config.LLM_MODEL` names, `gemma3:4b` by default -- and it goes
 through ``llm_worker.call_ollama`` so it shares the circuit breaker with every
 other LLM call: when Ollama is down, the PDF endpoint returns immediately with
 a rule-based summary instead of blocking for LLM_TIMEOUT_S.
