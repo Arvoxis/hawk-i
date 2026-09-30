@@ -33,6 +33,7 @@ UNIT_SUITES = [
     ("query mapping ", "test_multi_query.py", "class normalisation, expansion, NMS"),
     ("llm resilience", "test_llm_worker.py",  "circuit breaker, parsing, fallback"),
     ("defect growth ", "test_growth.py",      "cross-inspection growth comparison"),
+    ("pdf report    ", "test_pdf.py",         "report rendering on degraded rows"),
 ]
 
 INTEGRATION_SUITE = ("integration   ", "test_fake_drone.py",

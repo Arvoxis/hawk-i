@@ -37,7 +37,9 @@ transformers>=4.44.0
 # ── Reporting ─────────────────────────────────────────────────
 # PDF generation is ReportLab, not WeasyPrint: WeasyPrint needs GTK native
 # libraries that are painful to ship on Windows GCS laptops.
-reportlab>=4.2.0
+# Held below 5.0: the report layout was built and verified against 4.x, and
+# tests/test_pdf.py has not been run against the 5.x series.
+reportlab>=4.2.0,<5.0
 
 # Optional, but recommended: matplotlib bundles DejaVuSans.ttf, which the PDF
 # generator picks up automatically. Without a Unicode font the rupee sign and
@@ -55,11 +57,14 @@ requests>=2.32.0
 
 # ── NOT installable from this file ────────────────────────────
 #
-# 1. SAM 2 — not on PyPI. Install from source, then place the checkpoint
-#    in models/:
-#      git clone https://github.com/facebookresearch/sam2 && cd sam2 && pip install -e .
+# 1. SAM 2 — not on PyPI under this name. Install from GitHub at the pinned
+#    commit (SAM 2's main has changed its predictor API before), then place
+#    the checkpoint in models/:
+#      pip install "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
 #      curl -L -o models/sam2.1_hiera_small.pt \
 #        https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt
+#    Verified against SAM-2 1.0 on torch 2.5.1+cu121.  No CUDA extension is
+#    compiled, so no MSVC toolchain is needed on Windows.
 #
 # 2. Ollama — a separate service, not a Python package:
 #      https://ollama.com/download

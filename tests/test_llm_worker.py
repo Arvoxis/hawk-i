@@ -165,7 +165,7 @@ class TestCallOllama(unittest.IsolatedAsyncioTestCase):
     async def test_open_breaker_short_circuits_without_calling(self):
         called = False
 
-        async def _explode(prompt):
+        async def _explode(prompt, *_a, **_kw):
             nonlocal called
             called = True
             raise AssertionError("should not have been called")
@@ -186,7 +186,7 @@ class TestCallOllama(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report, {"ok": True})
 
     async def test_transport_failure_returns_fallback(self):
-        async def _fail(prompt):
+        async def _fail(prompt, *_a, **_kw):
             raise ValueError("garbage from model")
 
         original_post = llm_worker._post
@@ -205,7 +205,7 @@ class TestCallOllama(unittest.IsolatedAsyncioTestCase):
     async def test_success_passes_the_report_through(self):
         expected = dict(TestResponseParsing.VALID)
 
-        async def _ok(prompt):
+        async def _ok(prompt, *_a, **_kw):
             return expected
 
         original_post = llm_worker._post
@@ -228,7 +228,7 @@ class TestCallOllama(unittest.IsolatedAsyncioTestCase):
             built += 1
             return {"fell": "back"}
 
-        async def _ok(prompt):
+        async def _ok(prompt, *_a, **_kw):
             return dict(TestResponseParsing.VALID)
 
         original_post = llm_worker._post

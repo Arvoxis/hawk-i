@@ -4,7 +4,7 @@ test_geometry.py — Unit tests for the GSD / area / severity maths.
 These run without a GPU, a model file, a database, or a running backend.
 
 Why they exist: the ground-sampling-distance conversion was previously written
-out three times (sam3_worker, processing_worker, sam2_segmenter) with two
+out three times (sam2_worker, processing_worker, sam2_segmenter) with two
 different unit factors, and the factor in use was 10x too small — which made
 every reported defect area 100x too small and pinned almost everything to
 severity L1.  These tests pin the conversion to an independently derived

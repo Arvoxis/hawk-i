@@ -769,7 +769,7 @@ def render_report_panel(det: dict):
     if img_path:
         filename = os.path.basename(img_path)
         st.image(f"{BACKEND}/frames/{filename}",
-                 caption="SAM3 annotated frame", use_container_width=True)
+                 caption="SAM 2 annotated frame", use_container_width=True)
 
     # LLM report block
     report_text = det.get("llm_report")

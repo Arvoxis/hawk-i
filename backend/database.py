@@ -1,4 +1,3 @@
-import asyncpg
 import logging
 from datetime import datetime as _datetime
 
@@ -25,6 +24,12 @@ pool = None
 
 
 async def init_db():
+    # Imported here, not at module level: asyncpg is touched on this one line
+    # only, and a top-level import makes `import database` -- and so the
+    # pure-logic unit tests that pull in processing_worker -- require a
+    # database driver they never call.
+    import asyncpg
+
     global pool
     pool = await asyncpg.create_pool(**DB_CONFIG, statement_cache_size=0)
 
@@ -95,10 +100,21 @@ async def _init_embedding_archive() -> None:
                 confidence   REAL             DEFAULT 0.0,
                 lat          DOUBLE PRECISION DEFAULT 0.0,
                 lon          DOUBLE PRECISION DEFAULT 0.0,
+                sam_score    REAL             DEFAULT 0.0,
+                altitude_m   REAL             DEFAULT 0.0,
                 detected_at  TIMESTAMPTZ      DEFAULT NOW(),
                 UNIQUE (session_id, detection_id)
             )
         """)
+        # The archive outlives any one release, so CREATE TABLE IF NOT EXISTS
+        # will not add columns introduced later.  sam_score separates a
+        # SAM-measured prior area from a bbox estimate (comparing the two is
+        # meaningless); altitude_m lets a past area be recomputed and audited.
+        for _col in ("sam_score", "altitude_m"):
+            await conn.execute(
+                f"ALTER TABLE {EMBEDDING_TABLE} "
+                f"ADD COLUMN IF NOT EXISTS {_col} REAL DEFAULT 0.0"
+            )
         # Class is the only filter every lookup applies.
         await conn.execute(f"""
             CREATE INDEX IF NOT EXISTS {EMBEDDING_TABLE}_class_idx
@@ -123,20 +139,26 @@ async def archive_embedding(
     confidence: float,
     lat: float,
     lon: float,
+    sam_score: float = 0.0,
+    altitude_m: float = 0.0,
 ) -> None:
     """Copy one detection's embedding into the cross-session archive."""
     async with pool.acquire() as conn:
         await conn.execute(f"""
             INSERT INTO {EMBEDDING_TABLE}
                 (session_id, detection_id, class_name, embedding,
-                 area_cm2, severity, confidence, lat, lon)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                 area_cm2, severity, confidence, lat, lon,
+                 sam_score, altitude_m)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (session_id, detection_id) DO UPDATE
-                SET embedding = EXCLUDED.embedding,
-                    area_cm2  = EXCLUDED.area_cm2,
-                    severity  = EXCLUDED.severity
+                SET embedding  = EXCLUDED.embedding,
+                    area_cm2   = EXCLUDED.area_cm2,
+                    severity   = EXCLUDED.severity,
+                    sam_score  = EXCLUDED.sam_score,
+                    altitude_m = EXCLUDED.altitude_m
         """, _SESSION_ID, detection_id, class_name, embedding_bytes,
-            area_cm2, severity, confidence, lat, lon)
+            area_cm2, severity, confidence, lat, lon,
+            sam_score, altitude_m)
 
 
 async def fetch_archived_embeddings(
@@ -153,7 +175,7 @@ async def fetch_archived_embeddings(
     async with pool.acquire() as conn:
         rows = await conn.fetch(f"""
             SELECT id, session_id, detection_id, embedding, area_cm2,
-                   severity, lat, lon, detected_at
+                   severity, lat, lon, sam_score, altitude_m, detected_at
               FROM {EMBEDDING_TABLE}
              WHERE class_name = $1{guard}
              ORDER BY detected_at DESC
@@ -257,9 +279,9 @@ async def update_detection_sam(
     image_path: str | None = None,
     severity: str | None = None,
 ):
-    """Back-fill SAM2/SAM3 results for an already-saved detection row.
+    """Back-fill SAM 2 results for an already-saved detection row.
 
-    ``severity`` is the area-based classification produced by sam3_worker;
+    ``severity`` is the area-based classification produced by sam2_worker;
     when provided it overwrites the initial confidence-based severity so the
     DB always reflects the real-world defect size.
     """
@@ -281,7 +303,7 @@ async def update_detection_sam(
                        image_path = COALESCE($4, image_path)
                  WHERE id = $1
             """, det_id, area_cm2, sam_score, image_path)
-    logger.debug(f"SAM3 updated row {det_id}: {area_cm2:.1f} cm² sev={severity or '—'}")
+    logger.debug(f"SAM 2 updated row {det_id}: {area_cm2:.1f} cm² sev={severity or '—'}")
 
 
 async def update_detection_report(

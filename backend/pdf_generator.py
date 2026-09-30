@@ -898,8 +898,13 @@ def generate_inspection_pdf(
                   if len(timestamps) >= 2 else
                   timestamps[0] if timestamps else "—")
 
-    lats = [float(d.get("lat") or 0) for d in detections if d.get("lat")]
-    lons = [float(d.get("lon") or 0) for d in detections if d.get("lon")]
+    # One list of pairs, not two independent filters: a row carrying a lat but
+    # no lon must contribute neither coordinate, or the printed corners pair a
+    # value from one detection with a value from another.
+    fixes = [(float(d["lat"]), float(d["lon"])) for d in detections
+             if d.get("lat") is not None and d.get("lon") is not None]
+    lats = [la for la, _ in fixes]
+    lons = [lo for _, lo in fixes]
     bbox_str = (
         f"({min(lats):.5f}, {min(lons):.5f}) → ({max(lats):.5f}, {max(lons):.5f})"
         if lats and lons else "—"

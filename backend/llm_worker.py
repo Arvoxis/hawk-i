@@ -130,7 +130,8 @@ def breaker_state() -> dict:
 
 # ── Raw call ──────────────────────────────────────────────────────────────────
 
-def _parse_response(raw: str) -> dict:
+def _parse_response(raw: str,
+                    required_keys: tuple[str, ...] = _REQUIRED_KEYS) -> dict:
     """Parse Ollama's text response into the report dict.
 
     Gemma reliably wraps JSON in ```json fences despite being told not to, so
@@ -149,36 +150,46 @@ def _parse_response(raw: str) -> dict:
     if not isinstance(report, dict):
         raise ValueError(f"expected a JSON object, got {type(report).__name__}")
 
-    missing = [k for k in _REQUIRED_KEYS if k not in report]
+    missing = [k for k in required_keys if k not in report]
     if missing:
         raise ValueError(f"response missing required keys: {missing}")
     return report
 
 
-async def _post(prompt: str) -> dict:
+async def _post(
+    prompt: str,
+    system: str = _SYSTEM,
+    required_keys: tuple[str, ...] = _REQUIRED_KEYS,
+) -> dict:
     """One HTTP round trip to Ollama. Raises on transport or schema failure."""
     body = {
         "model":   config.LLM_MODEL,
-        "prompt":  f"System: {_SYSTEM}\n\nUser: {prompt}",
+        "prompt":  f"System: {system}\n\nUser: {prompt}",
         "stream":  False,
         "options": config.ollama_options(),
     }
     async with httpx.AsyncClient(timeout=config.LLM_TIMEOUT_S) as client:
         resp = await client.post(config.OLLAMA_GENERATE_URL, json=body)
         resp.raise_for_status()
-        return _parse_response(resp.json().get("response", ""))
+        return _parse_response(resp.json().get("response", ""), required_keys)
 
 
 async def call_ollama(
     prompt: str,
     fallback: Callable[[], dict],
     context: str = "",
+    system: str = _SYSTEM,
+    required_keys: tuple[str, ...] = _REQUIRED_KEYS,
 ) -> dict:
     """Generate a report, falling back to a rule-based one on any failure.
 
     This never raises: callers always get a usable report dict.  ``fallback``
     is a zero-argument callable so the (cheap) fallback is only built when it
     is actually needed.
+
+    ``system``/``required_keys`` default to the per-defect report schema.  The
+    mission summary in llm_reporter overrides them so that it runs behind this
+    breaker too, instead of paying LLM_TIMEOUT_S against a dead Ollama.
     """
     label = f" [{context}]" if context else ""
 
@@ -187,7 +198,7 @@ async def call_ollama(
         return fallback()
 
     try:
-        report = await _post(prompt)
+        report = await _post(prompt, system, required_keys)
         _breaker.record_success()
         return report
     except httpx.TimeoutException:
@@ -320,7 +331,7 @@ async def _sweep() -> None:
             f"Average confidence: {avg_conf:.2f}\n"
             f"Average area: {avg_area:.1f} cm2\n"
             f"Observed severities: {', '.join(sevs) or 'unknown'}\n"
-            f"Location: Bengaluru, Karnataka, India\n"
+            f"Location: {config.SITE_LOCATION}\n"
             "Generate the inspection report JSON."
         )
 

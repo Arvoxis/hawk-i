@@ -215,7 +215,7 @@ half-processed detection never surfaces as a finding.
 | **DINOv2-base** | GCS (GPU) | 768-d embeddings for verification | `facebook/dinov2-base` via `transformers` |
 | **Gemma 3 4B** | GCS (Ollama) | Structured report generation | `ollama pull gemma3:4b` |
 
-**A note on names.** `backend/sam3_worker.py` and the `gdino_detections` payload field are historical: the worker runs **SAM 2.1**, and the open-vocabulary detections come from **YOLO-World**, not Grounding DINO. The names are kept because the Jetson-side client and the stored payloads use them; treat them as labels, not as claims about which model is running.
+**A note on names.** The `gdino_detections` payload field is historical: those open-vocabulary detections come from **YOLO-World**, not Grounding DINO. It is kept because it is part of the wire format the Jetson-side client already speaks, so renaming it would break any drone already in the field; treat it as a label, not as a claim about which model is running. (The worker module was called `sam3_worker.py` for the same historical reason and has been renamed to `sam2_worker.py`, since nothing outside this repository referenced it.)
 
 **Performance characteristics.** SAM 2 encodes each frame **once** and then predicts every box inside that single inference context, so per-frame segmentation cost is near-constant in the number of detections rather than linear. Measured end-to-end throughput on the reference GCS (RTX 3050 6 GB laptop) is dominated by the LLM step, not by vision: SAM 2 + DINOv2 complete in well under a second per frame, while a Gemma 3 report takes ~10–12 s on CPU. The published figures below are targets, not measurements from this repository's test runs — re-measure on your own hardware before quoting them.
 
@@ -508,10 +508,10 @@ hawk-i/
 │   ├── database.py                 # asyncpg + PostGIS, session-isolated tables
 │   ├── processing_worker.py        # Per-frame pipeline orchestration
 │   ├── sam2_segmenter.py           # SAM 2.1 wrapper, lazy load, health check
-│   ├── sam3_worker.py              # Batched segmentation + mask overlay (SAM 2.1)
+│   ├── sam2_worker.py              # Batched segmentation + mask overlay (SAM 2.1)
 │   ├── dinov2_embedder.py          # Embeddings, centroid & peer verification
 │   ├── llm_worker.py               # Ollama access + circuit breaker + batch sweep
-│   ├── llm_reporter.py             # Per-detection and mission-summary reports
+│   ├── llm_reporter.py             # Mission summary for the PDF cover page
 │   ├── pdf_generator.py            # ReportLab inspection report
 │   └── video_stream.py             # In-memory frame store for the live feed
 │
@@ -573,6 +573,13 @@ git clone https://github.com/Arvoxis/hawk-i.git
 cd hawk-i
 ```
 
+Create the environment. Conda is recommended over a bare venv because torch,
+OpenCV and the SAM 2 stack all carry compiled CUDA components:
+
+```bash
+conda create -n hawki python=3.11 -y && conda activate hawki
+```
+
 ```bash
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
@@ -581,10 +588,12 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
 ```
 
-SAM 2 is not on PyPI — install it from source and fetch the checkpoint:
+SAM 2 is not on PyPI under that name — install it from GitHub and fetch the
+checkpoint. The commit is pinned because SAM 2's `main` has changed its
+predictor API before:
 
 ```bash
-git clone https://github.com/facebookresearch/sam2 && cd sam2 && pip install -e . && cd ..
+pip install "git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4"
 ```
 
 ```bash
@@ -727,7 +736,7 @@ Honest notes for anyone extending this.
 
 5. **The 30-second batch sweep and the per-detection reporter overlap.** The sweep now only fills rows with no report, so it can no longer overwrite the richer per-detection version — but the two paths still produce differently-shaped prose for the same defect class.
 
-6. **`gdino_detections` and `sam3_worker` are misleading names.** See [AI Model Stack](#ai-model-stack). Renaming them means a coordinated change to the Jetson payload format, which has not been done.
+6. **`gdino_detections` is a misleading name.** It carries YOLO-World output, not Grounding DINO. See [AI Model Stack](#ai-model-stack). Renaming it means a coordinated change to the Jetson payload format, which would break an already-deployed drone, so it has not been done.
 
 ---
 

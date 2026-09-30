@@ -12,6 +12,7 @@ irreproducible.  Keep it that way: add new settings here, not inline.
 
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
@@ -154,6 +155,30 @@ DINOV2_PEER_FP_THRESHOLD        = _env_float("DINOV2_PEER_FP_THRESHOLD", 0.20)
 DINOV2_MIN_CLASS_EXAMPLES       = _env_int("DINOV2_MIN_CLASS_EXAMPLES", 5)
 
 
+# -- Cross-inspection defect identity ----------------------------------------
+# Visual similarity alone cannot establish that two detections are the SAME
+# physical defect: two hairline cracks on two different columns look alike to
+# any embedding.  A growth claim therefore also requires the two fixes to be
+# within SAME_DEFECT_MAX_DIST_M of each other.  25 m is deliberately loose --
+# drone GNSS is good to a few metres and a structural element spans several --
+# so it rejects "different building" without rejecting "same wall, other pass".
+SAME_DEFECT_SIMILARITY  = _env_float("SAME_DEFECT_SIMILARITY", 0.80)
+SAME_DEFECT_MAX_DIST_M  = _env_float("SAME_DEFECT_MAX_DIST_M", 25.0)
+# Percent area change that counts as real growth rather than measurement
+# noise: a mask boundary wobbles a few percent between passes.
+GROWTH_DELTA_PCT        = _env_float("GROWTH_DELTA_PCT", 25.0)
+
+
+def distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in metres between two WGS-84 fixes (haversine)."""
+    r = 6_371_000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = p2 - p1
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+
 # -- Detection intake ---------------------------------------------------------
 # Minimum detector confidence to enter the processing queue at all.
 MIN_DETECTION_CONF = _env_float("MIN_DETECTION_CONF", 0.45)
@@ -171,6 +196,10 @@ OLLAMA_TAGS_URL     = f"{OLLAMA_BASE_URL}/api/tags"
 LLM_MODEL      = os.getenv("LLM_MODEL", "gemma3:4b")
 LLM_TIMEOUT_S  = _env_float("LLM_TIMEOUT_S", 30.0)
 LLM_INTERVAL_S = _env_int("LLM_BATCH_INTERVAL", 30)
+
+# Named in every LLM prompt so cost and action estimates are regionally
+# sensible -- the repair costs are quoted in INR.
+SITE_LOCATION  = os.getenv("SITE_LOCATION", "Bengaluru, Karnataka, India")
 
 # Layers to offload to the GPU.  -1 means "let Ollama decide" (the normal case).
 # Set OLLAMA_NUM_GPU=0 to force CPU inference -- required on hosts whose NVIDIA

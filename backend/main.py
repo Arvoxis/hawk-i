@@ -30,10 +30,9 @@ from database import (
     CURRENT_TABLE, _SESSION_ID,
 )
 from pdf_generator import generate_inspection_pdf
-from sam2_segmenter import SAM2Segmenter
 from llm_reporter import LLMReporter
 from dinov2_embedder import get_embedder
-import sam3_worker
+import sam2_worker
 import llm_worker
 import processing_worker
 
@@ -257,7 +256,10 @@ else:
     logger.info("Ground-station YOLO disabled (set GS_YOLO_ENABLED=1 to enable)")
 
 # ── SAM2 segmenter (lazy-loads model on first request) ────────
-segmenter = SAM2Segmenter()
+# Shared with the processing pipeline via sam2_worker rather than created here:
+# two SAM2Segmenter objects each lazy-load their own copy of the ~1.2 GB
+# checkpoint, which does not fit beside DINOv2 and YOLO on 6 GB.
+segmenter = sam2_worker.get_segmenter()
 
 # ── LLM reporter (calls Ollama / Gemma-3) ─────────────────────
 reporter = LLMReporter()
@@ -934,7 +936,8 @@ async def get_similar_detections(detection_id: int):
 
     embedder = get_embedder()
     similar = await embedder.find_similar(
-        embedding, row["class_name"], top_k=3
+        embedding, row["class_name"], top_k=3,
+        lat=row.get("lat"), lon=row.get("lon"),
     )
     # Exclude the detection itself
     similar = [s for s in similar if s["id"] != detection_id]

@@ -1,12 +1,13 @@
 """
-sam3_worker.py — SAM 2 bounding-box segmentation, severity-coloured mask overlay,
+sam2_worker.py — SAM 2 bounding-box segmentation, severity-coloured mask overlay,
 and annotated-frame persistence.
 
-NAME WARNING: there is no SAM 3 in this project. This module is named after the
-original plan in docs/legacy/softdev.html ("install segment-anything-3"), but it
-imports SAM2Segmenter from sam2_segmenter and runs SAM 2 — as do the "SAM3"
-strings in database.py and dashboard/utils.py. Renaming the module would touch
-main.py, processing_worker.py, database.py and video_stream.py, so the name stays.
+This file was called sam3_worker.py, after the original plan in
+docs/legacy/softdev.html ("install segment-anything-3").  There is no SAM 3 in
+this project and never was: it imports SAM2Segmenter from sam2_segmenter and
+runs SAM 2, so the module has been renamed to say so.  The gdino_detections
+payload key is misnamed for the same historical reason and is deliberately left
+alone — it is part of the wire format the Jetson already speaks.
 
 GPU optimisation: process_frame() encodes the image ONCE on the GPU and
 predicts all bounding boxes in a single inference context — N× faster than
@@ -43,10 +44,13 @@ _SEV_BGR = {
 }
 
 # ── Lazy SAM2 segmenter singleton ─────────────────────────────────────────────
+# Process-wide, and public because main.py's /api/segment endpoint shares it.
+# SAM 2.1 Hiera Small is ~1.2 GB of weights; on a 6 GB card a second instance
+# alongside DINOv2 and YOLO is enough to OOM the pipeline.
 _segmenter = None
 
 
-def _get_segmenter():
+def get_segmenter():
     global _segmenter
     if _segmenter is None:
         from sam2_segmenter import SAM2Segmenter
@@ -198,7 +202,7 @@ def process_frame(
         "process_frame: alt_m=%.1f gsd=%.4f cm/px (frame %dx%d)", alt_m, gsd, w, h
     )
 
-    seg = _get_segmenter()
+    seg = get_segmenter()
     seg._load_model()
 
     bgr_base = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)

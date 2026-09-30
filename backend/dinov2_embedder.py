@@ -195,6 +195,8 @@ class DINOv2Embedder:
         class_name: str,
         top_k: int = 3,
         prior_sessions_only: bool = False,
+        lat: float | None = None,
+        lon: float | None = None,
     ) -> list[dict]:
         """Return the top_k most visually similar past detections of this class.
 
@@ -207,9 +209,18 @@ class DINOv2Embedder:
         want when asking "has this been seen before?" as opposed to "what else
         in this flight looks like this?".
 
+        ``lat``/``lon`` are this detection's own fix.  Supplying them fills in
+        ``distance_m`` per match, which is what lets a caller tell "the same
+        crack, photographed again" from "a crack that happens to look the
+        same, on another structure".  Ranking is unaffected: the geospatial
+        decision belongs to the caller making the claim, not to this search,
+        which is also used for false-positive checks where location is
+        irrelevant.
+
         Returns dicts of:
             {id, session_id, lat, lon, detected_at, similarity_score,
-             area_cm2, same_session}
+             area_cm2, sam_score, altitude_m, same_session, distance_m}
+        ``distance_m`` is None when either fix is missing.
         """
         from database import pool, fetch_archived_embeddings, _SESSION_ID
 
@@ -231,16 +242,31 @@ class DINOv2Embedder:
                 if stored.shape != (768,):
                     continue
                 sim = DINOv2Embedder.cosine_similarity(embedding, stored)
+                r_lat = float(row["lat"] or 0.0)
+                r_lon = float(row["lon"] or 0.0)
+                # 0.0/0.0 is the schema's "no GPS fix" default, not a fix in
+                # the Gulf of Guinea -- treat it as unknown, so a missing fix
+                # on either side yields None rather than a bogus 5000 km.
+                have_fix = (
+                    lat is not None and lon is not None
+                    and (lat or lon) and (r_lat or r_lon)
+                )
                 scored.append(
                     {
                         "id":               row["detection_id"],
                         "session_id":       row["session_id"],
                         "same_session":     row["session_id"] == _SESSION_ID,
-                        "lat":              float(row["lat"]),
-                        "lon":              float(row["lon"]),
+                        "lat":              r_lat,
+                        "lon":              r_lon,
                         "detected_at":      str(row["detected_at"]),
                         "similarity_score": round(sim, 4),
                         "area_cm2":         float(row["area_cm2"] or 0.0),
+                        "sam_score":        float(row["sam_score"] or 0.0),
+                        "altitude_m":       float(row["altitude_m"] or 0.0),
+                        "distance_m": (
+                            round(config.distance_m(lat, lon, r_lat, r_lon), 1)
+                            if have_fix else None
+                        ),
                     }
                 )
             except Exception:
