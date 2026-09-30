@@ -8,7 +8,7 @@ once SAM 2 has drawn its mask overlay, so the operator sees the annotated frame
 rather than the raw camera image whenever a detection is present.
 
 There is deliberately no disk I/O here.  SAM-annotated stills for L2/L3
-detections are written separately by sam3_worker into data/frames/ and served
+detections are written separately by sam2_worker into data/frames/ and served
 as static files via the /frames mount — those are detection-card thumbnails,
 not the live feed.
 """

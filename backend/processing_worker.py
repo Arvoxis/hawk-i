@@ -25,7 +25,7 @@ import numpy as np
 
 import config
 import database as _db
-import sam3_worker
+import sam2_worker
 import video_stream
 from llm_worker import call_ollama, build_fallback
 from database import save_detection_raw
@@ -52,9 +52,33 @@ def _normalise_class(raw: str) -> str:
     return canonical_class(raw) or raw
 
 
-# A match this similar is treated as the same physical defect seen again,
-# rather than merely a defect that looks like it.
-_SAME_DEFECT_SIMILARITY = 0.80
+# A match this similar *and* this close is treated as the same physical defect
+# seen again, rather than merely a defect that looks like it.
+_SAME_DEFECT_SIMILARITY = config.SAME_DEFECT_SIMILARITY
+_SAME_DEFECT_MAX_DIST_M = config.SAME_DEFECT_MAX_DIST_M
+_GROWTH_DELTA_PCT       = config.GROWTH_DELTA_PCT
+
+
+def _is_same_defect(m: dict) -> bool:
+    """Whether an archived match is the same physical defect as this one.
+
+    Three independent conditions, because visual similarity alone does not
+    establish physical identity -- two hairline cracks on two different
+    columns are near-identical to any embedding:
+
+    1. From an earlier flight (a within-flight repeat is a duplicate frame,
+       not growth over time).
+    2. Visually similar enough to be the same defect.
+    3. Physically co-located.  A match whose distance is unknown (either fix
+       missing) is rejected: without a location there is no evidence these are
+       one defect, and a growth claim needs evidence, not an assumption.
+    """
+    if m.get("same_session"):
+        return False
+    if m.get("similarity_score", 0) < _SAME_DEFECT_SIMILARITY:
+        return False
+    dist = m.get("distance_m")
+    return dist is not None and dist <= _SAME_DEFECT_MAX_DIST_M
 
 
 def _describe_growth(area_cm2: float, matches: list[dict]) -> tuple[str, dict | None]:
@@ -64,10 +88,13 @@ def _describe_growth(area_cm2: float, matches: list[dict]) -> tuple[str, dict | 
     the same crack at 400 cm2 three months later is not.  Returns a
     human-readable note plus the structured comparison, or ("", None) when
     there is no confident prior match.
+
+    Both areas must come from a SAM mask.  A bbox estimate is a rectangle around
+    the defect and a mask is the defect, so the two differ by whatever fraction
+    of the box the defect fills -- comparing them manufactures growth figures
+    that say nothing about the structure.
     """
-    prior = [m for m in matches
-             if not m.get("same_session")
-             and m.get("similarity_score", 0) >= _SAME_DEFECT_SIMILARITY]
+    prior = [m for m in matches if _is_same_defect(m)]
     if not prior or area_cm2 <= 0:
         return "", None
 
@@ -76,19 +103,30 @@ def _describe_growth(area_cm2: float, matches: list[dict]) -> tuple[str, dict | 
     if was <= 0:
         return "", None
 
+    # sam_score == -1.0 is the bbox-estimate sentinel set by _process_one.
+    if float(best.get("sam_score") or 0.0) <= 0:
+        return (f"Previously recorded "
+                f"{str(best.get('detected_at', ''))[:10]} at {was:.1f} cm2, but "
+                f"that area was estimated from the bounding box rather than "
+                f"measured from a mask -- not comparable, no growth verdict "
+                f"issued"), None
+
     delta_pct = (area_cm2 - was) / was * 100.0
     when = str(best.get("detected_at", ""))[:10]
 
-    if delta_pct >= 25:
-        verdict = "GROWING"
-    elif delta_pct <= -25:
-        verdict = "reduced (verify -- may be a different viewing angle)"
+    if delta_pct >= _GROWTH_DELTA_PCT:
+        verdict, caveat = "GROWING", ""
+    elif delta_pct <= -_GROWTH_DELTA_PCT:
+        verdict = "REDUCED"
+        caveat = "a defect does not shrink -- verify viewing angle and mask quality"
     else:
-        verdict = "stable"
+        verdict, caveat = "STABLE", ""
 
     note = (f"Previously recorded {when} at {was:.1f} cm2 "
-            f"(similarity {best['similarity_score']:.2f}); "
-            f"now {area_cm2:.1f} cm2 \u2014 {delta_pct:+.0f}%, {verdict}")
+            f"(similarity {best['similarity_score']:.2f}, "
+            f"{best['distance_m']:.0f} m away); "
+            f"now {area_cm2:.1f} cm2 \u2014 {delta_pct:+.0f}%, {verdict}"
+            + (f" ({caveat})" if caveat else ""))
 
     return note, {
         "prior_session":  best.get("session_id"),
@@ -96,7 +134,9 @@ def _describe_growth(area_cm2: float, matches: list[dict]) -> tuple[str, dict | 
         "prior_seen":     when,
         "delta_pct":      round(delta_pct, 1),
         "verdict":        verdict,
+        "caveat":         caveat,
         "similarity":     best["similarity_score"],
+        "distance_m":     best["distance_m"],
     }
 
 
@@ -180,7 +220,7 @@ async def _process_one(raw_item: dict) -> None:
         try:
             sam_results, composite_jpeg = await loop.run_in_executor(
                 None,
-                sam3_worker.process_frame,
+                sam2_worker.process_frame,
                 frame_np,
                 dets_for_sam,
                 {"lat": lat, "lon": lon, "alt_m": alt},
@@ -198,28 +238,31 @@ async def _process_one(raw_item: dict) -> None:
 
     for i, (det_id, class_name, confidence, box) in enumerate(saved):
         if i < len(sam_results):
-            r        = sam_results[i]
-            severity = r["severity"]
-            area_cm2 = r["area_cm2"]
-            sam_mask = r.get("mask")     # bool numpy array or None
+            r         = sam_results[i]
+            severity  = r["severity"]
+            area_cm2  = r["area_cm2"]
+            sam_score = r["sam_score"]
+            sam_mask  = r.get("mask")    # bool numpy array or None
             await _db.update_detection_sam(
                 det_id,
                 area_px    = r.get("pixel_count", 0),
                 area_cm2   = area_cm2,
-                sam_score  = r["sam_score"],
+                sam_score  = sam_score,
                 image_path = r.get("mask_image_path"),
                 severity   = severity,
             )
         else:
             severity = "L3" if confidence > 0.85 else "L2" if confidence > 0.65 else "L1"
             # Estimate area from bounding box when no frame was provided.
-            # sam_score=-1 signals to the PDF generator that this is an estimate.
             frame_w = frame_np.shape[1] if frame_np is not None and frame_np.size else None
             area_cm2 = _estimate_area_cm2_from_box(box, alt, frame_w)
-            sam_mask = None
+            # Sentinel: bbox-estimated, not SAM-measured.  The PDF marks these as
+            # estimates, and _describe_growth refuses to compare against one.
+            sam_score = -1.0
+            sam_mask  = None
             await _db.update_detection_sam(
                 det_id, 0, area_cm2,
-                sam_score=-1.0,   # sentinel: bbox-estimated, not SAM-measured
+                sam_score=sam_score,
                 image_path=None,
                 severity=severity,
             )
@@ -269,7 +312,9 @@ async def _process_one(raw_item: dict) -> None:
                 # If the closest past example of this class is still very
                 # dissimilar, the detection is probably a false positive even
                 # before we have enough data for a centroid.
-                similar_list = await embedder.find_similar(embedding, class_name, top_k=3)
+                similar_list = await embedder.find_similar(
+                    embedding, class_name, top_k=3, lat=lat, lon=lon,
+                )
                 if similar_list:
                     best_sim = max(s["similarity_score"] for s in similar_list)
                     # Hard FP threshold — stricter than centroid soft-flag
@@ -299,6 +344,8 @@ async def _process_one(raw_item: dict) -> None:
                         confidence      = confidence,
                         lat             = lat,
                         lon             = lon,
+                        sam_score       = sam_score,
+                        altitude_m      = alt,
                     )
                 except Exception as exc:
                     logger.warning(
@@ -364,7 +411,7 @@ async def _process_one(raw_item: dict) -> None:
                 f"Average confidence: {confidence:.2f}\n"
                 f"Average area: {area_cm2:.1f} cm²\n"
                 f"Observed severities: {severity}\n"
-                f"Location: Bengaluru, Karnataka, India\n"
+                f"Location: {config.SITE_LOCATION}\n"
                 f"DINOv2 note: {dino_note}"
                 f"{similar_note}\n"
                 + ("If the defect is growing, raise urgency accordingly.\n"

@@ -1,5 +1,5 @@
 """
-sam3_worker.py — SAM 2 bounding-box segmentation, severity-coloured mask overlay,
+sam2_worker.py — SAM 2 bounding-box segmentation, severity-coloured mask overlay,
 and annotated-frame persistence.
 
 GPU optimisation: process_frame() encodes the image ONCE on the GPU and
@@ -38,10 +38,13 @@ _SEV_BGR = {
 }
 
 # ── Lazy SAM2 segmenter singleton ─────────────────────────────────────────────
+# Process-wide, and public because main.py's /api/segment endpoint shares it.
+# SAM 2.1 Hiera Small is ~1.2 GB of weights; on a 6 GB card a second instance
+# alongside DINOv2 and YOLO is enough to OOM the pipeline.
 _segmenter = None
 
 
-def _get_segmenter():
+def get_segmenter():
     global _segmenter
     if _segmenter is None:
         from sam2_segmenter import SAM2Segmenter
@@ -176,7 +179,7 @@ def process_frame(
     gsd   = _gsd_cm_per_px(alt_m, img_w_px=w)
     logger.debug("process_frame: alt_m=%.1f gsd=%.4f cm/px (frame %dx%d)", alt_m, gsd, w, h)
 
-    seg = _get_segmenter()
+    seg = get_segmenter()
     seg._load_model()
 
     bgr_base  = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
